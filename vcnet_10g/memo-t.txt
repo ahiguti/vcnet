@@ -1,0 +1,122 @@
+
+TODO:
+- 右alt+Tでadv7611のi2cへ書き込み
+
+
+TXD_OUT
+0002 5cd4 54c9 0200
+0045 0008 03c8 a8c0
+1180 0000 0000 e400
+a8c0 03c8 a8c0 b228
+d000 1ede 0f27 02c8
+
+
+ether_OUT_TDATA
+0002 5cd4 54c9 0200 ok
+0045 0008 03c8 a8c0 ok
+1180 0000 0000 e400 ok
+a8c0 03c8 a8c0 05a0 ip checksumおかしい
+d000 1ede 0f27 02c8 ok
+
+
+FPGA側が192.168.200.3
+PC側が 192.168.200.2
+
+peer ip addrが02なのは正しい
+
+
+-------------------------
+wire [15:0] ipv4_sum_base =
+    ipv4_sum(16'h4500, // version, headerlen, tos
+    ipv4_sum_32lsb(16'h8011, // ttl, udp
+        LOCAL_IP));
+tx_ipv4_sum <= ipv4_sum_32lsb(ipv4_sum_base, rx_src_ip);
+tx_ipv4_sum <= ipv4_sum(tx_ipv4_sum, bswap(rx_iplen));
+  rxのiplenだが送信側も同じ
+txd <= { rx_src_ip[15:0], LOCAL_IP[31:0],
+                bswap(tx_ipv4_sum) ^ 16'hffff };
+
+src_ip, dst_ip, iplen
+
+---------------------------------------
+
+
+function [15:0] ipv4_sum;
+input [15:0] x;
+input [15:0] y;
+reg [16:0] z;
+begin
+    z = x + y;
+    ipv4_sum = z[15:0] + z[16];
+end
+endfunction
+
+function [15:0] bswap;
+input [15:0] x;
+begin
+    bswap = { x[7:0], x[15:8] };
+end
+endfunction
+
+function [15:0] bswap32;
+input [31:0] x;
+begin
+    bswap32 = { x[7:0], x[15:8], x[23:16], x[31:24] };
+end
+endfunction
+
+function [15:0] ipv4_sum_32lsb;
+input [15:0] x;
+input [31:0] y;
+begin
+    ipv4_sum_32lsb = ipv4_sum(x, ipv4_sum(bswap(y[15:0]), bswap(y[31:16])));
+end
+endfunction
+
+
+wire [15:0] ipv4_sum_base =
+    ipv4_sum(16'h4500,            // version, headerlen, tos
+        ipv4_sum_32lsb(16'h8011,  // ttl, udp
+            SRC_IP_ADDR));
+ipsum <= ipv4_sum(ipv4_sum_base, bswap(IPV4_LEN));
+// ipsum <= ipv4_sum_32lsb(ipsum, src_ip_addr);
+ipsum <= ipv4_sum_32lsb(ipsum, dst_ip_addr);
+out_tdata <= ... bswap(ipsum) ^ 16'hffff
+
+--------------------------------
+
+1080p_qs.txt
+ADV7611-VER.3.0c.txtから抜粋した設定をベース。
+RGB full rangeになるようにEDIDを変更。
+98_01_05, 98_02_F2
+
+
+--------------------------------
+HPA_MANUAL 0x6C[0] = 1
+HPA_MANUAL_VALUE_A 0x20[7] = 0
+50ms待つ
+HPA_MANUAL_VALUE_A 0x20[7] = 1
+
+HPA_MANUAL, Addr 68 (HDMI), Address 0x6C[0]
+HPA_MAN_VALUE_A, IO, Address 0x20[7]
+
+68_6C_A2(default) -> 68_6C_A3
+98_20_F0(default) -> 98_20_70
+50ms待つ
+98_20_F0(default) -> 98_20_F0
+
+--------------------------------
+vcnet_irの仕様
+
+既定で1を出力
+vcnet_ir_setval(1);
+
+uint16_t data[datanum];
+vcnet_ir_setval(0);
+for (uint32_t i = 0; i < datanum; ++i) {
+  usleep(data[i]);
+  val ^= 1;
+  vcnet_ir_setval(val);
+}
+vcnet_ir_setval(1);
+

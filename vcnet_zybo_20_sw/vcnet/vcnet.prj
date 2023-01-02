@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="ASCII"?>
+<sdkproject:SdkProject xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:sdkproject="http://www.xilinx.com/sdkproject" name="vcnet" location="C:/Users/user/vitis_lwip/vcnet" platform="C:/Users/user/vcnet/vcnet_zybo_20_sw/bd_vcnet_1g/export/bd_vcnet_1g/bd_vcnet_1g.xpfm" platformUID="xilinx:zybo-z7-20::0.0(custom)" systemProject="vcnet_system" sysConfig="bd_vcnet_1g" runtime="cpp" cpu="standalone_domain" cpuInstance="ps7_cortexa9_0" os="standalone" dimmRepoPath="" mssSignature="5a33146196e935091cbad6d8a27a9101">
+  <configuration name="Debug" id="xilinx.gnu.armv7.exe.debug.216352505">
+    <configBuildOptions xsi:type="sdkproject:SdkOptions"/>
+    <lastBuildOptions xsi:type="sdkproject:SdkOptions"/>
+  </configuration>
+  <configuration name="Release" id="xilinx.gnu.armv7.exe.release.503134177">
+    <configBuildOptions xsi:type="sdkproject:SdkOptions"/>
+    <lastBuildOptions xsi:type="sdkproject:SdkOptions"/>
+  </configuration>
+  <template appTemplateName="lwip_tcp_perf_server" hasBspSettings="true"/>
+</sdkproject:SdkProject>
