@@ -13,8 +13,6 @@ cp -f "$drive/build/SDL_ttf/VisualC/x64/Release/"*.dll ./x64/Release/
 cp -f "$drive/build/SDL_ttf/VisualC/x64/Debug/"*.dll ./x64/Debug/
 cp -f "$drive/build/glew/bin/Release/x64/"*.dll ./x64/Release/
 cp -f "$drive/build/glew/bin/Debug/x64/"*.dll ./x64/Debug/
-cp -f "$drive/build/ext/mplus-1m-bold.ttf" .
-# rm -f ./x64/Release/vcnet_client.exe
 
 exe="./x64/Release/vcnet_client.exe"
 src="./vcnet.cpp"

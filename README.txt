@@ -221,10 +221,7 @@ vcnet_client
        https://wiki.libsdl.org/SDL_ttf/FrontPage
      - glew (Windowsのみ必要)
        https://github.com/nigels-com/glew
-  2. TTFフォントを用意する。Windowsではvcnetクライアントの実行形式と同
-     じディレクトリの mplus-1m-bold.ttf を読み込むようになっている。
-     vcnet.cpp を参照。
-  3. vcnet.cpp をコンパイルする。Linux や Mac OS では Makefile が使える
+  2. vcnet.cpp をコンパイルする。Linux や Mac OS では Makefile が使える
      ので make を実行する。Windows でのビルド方法は build_windows.sh
      の中身を参照。Visual Studio 2019 でビルドする場合は
      vcnet_client.sln を使うことができる。
@@ -276,7 +273,7 @@ device0
   wheel_dir=0
     1を指定するとマウスホイールの動作の向きが反転する。
 
-use_gl:
+use_gl
   (例) use_gl: 1
   1のときvcnetクライアントがOpenGLを使って描画する。既定値は1。
 
@@ -285,6 +282,13 @@ vsync
   なる。テアリングが起きなくなるが、遅延は少し大きくなる。また現在の
   実装では、リモートの垂直同期周波数がローカルと同一程度以上のときに
   大幅に画面更新が遅延する。
+
+font
+  vcnetクライアントが画面上に表示するメッセージのフォントを指定する。
+  既定ではOSにあらかじめインストールされているフォントを使用する。
+
+font_size
+  vcnetクライアントが画面上に表示するメッセージの大きさを指定する。
 
 logmask
   vcnetクライアントどのような種類のログを出力するかどうかを指定する。

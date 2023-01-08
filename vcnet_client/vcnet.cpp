@@ -1775,7 +1775,6 @@ public:
   unsigned get_width() const;
   unsigned get_height() const;
   SDL_Rect get_cur_draw_rect() const;
-  void set_use_gl(bool v);
   bool get_use_gl() const;
   void set_title(std::string const& s);
 };
@@ -1784,6 +1783,8 @@ vcnet_window::vcnet_window(vcnet_config const& conf0)
   : conf(conf0)
 {
   vsync_mode = (unsigned)conf.get_uint("vsync", 0);
+  use_gl = (conf.get_uint("use_gl", 1) != 0);
+  log(0, "use_gl=%d\n", (int)use_gl);
   fullscreen = 0; // SDL_WINDOW_FULLSCREEN_DESKTOP;
   Uint32 flags = fullscreen;
   flags |= SDL_WINDOW_RESIZABLE;
@@ -1876,6 +1877,10 @@ vcnet_window::vcnet_window(vcnet_config const& conf0)
         "  return texture2D(tex_video, (p + 0.5) * v_video_size_inv).xy;\n"
         "}\n"
         "vec4 texelFetchYUV(vec2 pc) {\n"
+        "  if (pc.x < 0.0 || pc.x >= video_size.x ||\n"
+        "    pc.y < 0.0 || pc.y >= video_size.y) {\n"
+        "    return vec4(0.0, 0.0, 0.0, 1.0);\n"
+        "  }\n"
         "  if (pc.x < message_size.x && pc.y < message_size.y) {\n"
         "    float a = texture2D(tex_message,\n"
         "      (pc + 0.5) * v_message_size_inv).a;\n"
@@ -1899,7 +1904,10 @@ vcnet_window::vcnet_window(vcnet_config const& conf0)
         "void main(void) {\n"
         "  if (video_format == 0.0) {\n"
         "    vec2 pc = v_video_coord;\n"
-        "    if (pc.x < message_size.x && pc.y < message_size.y) {\n"
+        "    if (pc.x < 0.0 || pc.x >= video_size.x ||\n"
+        "      pc.y < 0.0 || pc.y >= video_size.y) {\n"
+        "      gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);\n"
+        "    } else if (pc.x < message_size.x && pc.y < message_size.y) {\n"
         "      float a = texture2D(tex_message, pc * v_message_size_inv).a;\n"
         "      gl_FragColor = vec4(a, a, a, 1.0);\n"
         "    } else {\n"
@@ -2010,25 +2018,28 @@ vcnet_window::vcnet_window(vcnet_config const& conf0)
       loc_scale = glGetUniformLocation(prog, "scale");
     }
   }
-  Uint32 render_flags = SDL_RENDERER_ACCELERATED;
-  if (vsync_mode != 0) {
-    render_flags |= SDL_RENDERER_PRESENTVSYNC;
-  }
   if (!use_gl) {
+    Uint32 render_flags = SDL_RENDERER_ACCELERATED;
+    if (vsync_mode != 0) {
+      render_flags |= SDL_RENDERER_PRESENTVSYNC;
+    }
     rend.reset(SDL_CreateRenderer(window, -1, render_flags),
       SDL_DestroyRenderer);
   }
   #ifdef _MSC_VER
-  const char *fn = "mplus-1m-bold.ttf";
-    // カレントディレクトリにフォントをコピーしておく必要がある。
+  std::string fn = "/Windows/Fonts/courbd.ttf";
+  #elif defined(__APPLE__)
+  std::string fn = "/System/Library/Fonts/Menlo.ttc";
   #else
-  const char *fn = "/usr/share/fonts/truetype/mplus/mplus-1m-bold.ttf";
+  std::string fn = "/usr/share/fonts/truetype/mplus/mplus-1m-bold.ttf";
   #endif
-  font.reset(TTF_OpenFont(fn, 18), TTF_CloseFont);
+  fn = conf.get_str("font", fn);
+  auto fnsz = conf.get_uint("font_size", 24);
+  font.reset(TTF_OpenFont(fn.c_str(), (int)fnsz), TTF_CloseFont);
   if (!font) {
-    log(0, "failed to open font\n");
+    log(0, "failed to open font: %s\n", fn.c_str());
   } else {
-    log(1, "font: %s\n", fn);
+    log(1, "font: %s\n", fn.c_str());
   }
 }
 
@@ -2108,15 +2119,17 @@ vcnet_window::resize_texture_if(unsigned w, unsigned h)
   if (w < 2 || h < 2) {
     return;
   }
-  if (rend == nullptr) {
-    return;
-  }
   texwidth = w;
   texheight = h;
   log(1, "resize_texture (%u %u) (%u %u)\n", w, h, texwidth, texheight);
-  sdltex.reset(SDL_CreateTexture(rend, SDL_PIXELFORMAT_ARGB8888,
-    SDL_TEXTUREACCESS_STREAMING, texwidth, texheight),
-    SDL_DestroyTexture);
+  if (rend != nullptr) {
+    sdltex.reset(SDL_CreateTexture(rend, SDL_PIXELFORMAT_ARGB8888,
+      SDL_TEXTUREACCESS_STREAMING, texwidth, texheight),
+      SDL_DestroyTexture);
+    if (sdltex.get() == nullptr) {
+      log(0, "resize_texture_if: SDL_CreateTexture: %s\n", SDL_GetError());
+    }
+  }
 }
 
 void
@@ -2363,12 +2376,6 @@ SDL_Rect
 vcnet_window::get_cur_draw_rect() const
 {
   return cur_draw_rect;
-}
-
-void
-vcnet_window::set_use_gl(bool v)
-{
-  use_gl = v;
 }
 
 bool
@@ -2765,11 +2772,6 @@ vcnet_control::vcnet_control(std::vector<std::string> const& conf_files)
       }
       joymap[ek] = em;
     }
-  }
-  {
-    auto v = conf.get_uint("use_gl", 1);
-    wnd.set_use_gl(v != 0);
-    log(0, "use_gl=%u\n", (unsigned)v);
   }
   if (!conf_files.empty()) {
     auto s = conf_files[conf_files.size() - 1];
