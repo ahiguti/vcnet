@@ -1336,6 +1336,7 @@ public:
   void gc_axis(uint8_t axis, int16_t v);
   void get_spi_buffer(uint8_t spi_index, std::vector<uint8_t>& buf_a,
     bool& has_event_r);
+  void up_all();
 };
 
 void
@@ -1411,6 +1412,18 @@ vcnet_hid::key_up_all()
 {
   keys.clear();
   key_mod = 0;
+  has_event = true;
+}
+
+void
+vcnet_hid::up_all()
+{
+  log(0, "up_all\n");
+  keys.clear();
+  key_mod = 0;
+  mbutton = 0;
+  absmbutton = 0;
+  gcbutton = 0;
   has_event = true;
 }
 
@@ -2671,6 +2684,7 @@ private:
   uint8_t keymod_sdl2usb(uint16_t mod);
   void handle_keyboard(SDL_KeyboardEvent const& kev, bool down);
   bool send_delayed_keycmd();
+  void clear_delayed_keycmd();
 public:
   vcnet_control(std::vector<std::string> const& conf_files);
   void handle_event(SDL_Event const& ev, bool& done_r);
@@ -3001,6 +3015,12 @@ vcnet_control::send_delayed_keycmd()
 }
 
 void
+vcnet_control::clear_delayed_keycmd()
+{
+  delayed_keycmd.clear();
+}
+
+void
 vcnet_control::handle_event(SDL_Event const& ev, bool& done_r)
 {
   log(19, "handle event %d\n", (int)ev.type);
@@ -3150,6 +3170,8 @@ vcnet_control::handle_event(SDL_Event const& ev, bool& done_r)
           SDL_SetRelativeMouseMode(SDL_FALSE);
           grab_mouse = false;
         }
+        hid.up_all();
+        clear_delayed_keycmd();
       }
       wnd.resize_window_if();
     }
