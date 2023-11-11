@@ -1,0 +1,4 @@
+x64/
+*.dSYM/
+.vs/
+imgui.ini

@@ -9,9 +9,11 @@
 
 #else
 
+#ifndef MOUSE_LEFT
 #define MOUSE_LEFT 0x01
 #define MOUSE_RIGHT 0x02
 #define MOUSE_MIDDLE 0x04
+#endif
 
 class AbsMouseMod_
 {

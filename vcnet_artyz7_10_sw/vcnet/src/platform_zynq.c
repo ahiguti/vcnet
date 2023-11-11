@@ -153,7 +153,6 @@ void platform_setup_timer(void)
 		xil_printf("In %s: Scutimer Self test failed...\r\n",
 		__func__);
 		return;
-
 	}
 
 	XScuTimer_EnableAutoReload(&TimerInstance);

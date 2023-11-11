@@ -1,4 +1,4 @@
-#include "xil_printf.h"
+﻿#include "xil_printf.h"
 #include "xparameters.h"
 #include "platform.h"
 #include "xil_io.h"
@@ -123,6 +123,45 @@ u64 get_time_us()
 	return (tCur/(COUNTS_PER_SECOND/1000000));
 }
 
+#define IO_IR_ADDR 0x43c60000
+
+void vcnet_ir_setval(u32 v)
+{
+	volatile u32 *addr = (volatile u32 *)(IO_IR_ADDR);
+	while (addr[0] == 0) {
+		// busy
+		xil_printf("ir_setval busy\r\n");
+	}
+	addr[0] = v;
+	xil_printf("ir_setval %x\r\n", (unsigned)v);
+}
+
+void vcnet_ir_init()
+{
+	vcnet_ir_setval(0); // end-of-frame mark
+}
+
+void vcnet_ir_out(const void *data, u32 datalen)
+{
+	xil_printf("ir_out %u bytes\r\n", (unsigned)datalen);
+	u32 const *tval32 = (u32 const *)data;
+	u16 const *tval16 = (u16 const *)data;
+	u32 tval16_num = datalen / 2;
+	vcnet_ir_setval(0);
+	{
+		for (u32 i = 0; i < tval16_num / 2; ++i) {
+			vcnet_ir_setval(tval32[i]);
+		}
+		u32 v = 0;
+		if ((tval16_num & 1) != 0) {
+			v = tval16[tval16_num - 1];
+		}
+		vcnet_ir_setval(v);
+	}
+	vcnet_ir_setval(0);
+}
+
+#if 0
 void vcnet_ir_setval(u32 v)
 {
 	volatile u32 *addr = (volatile u32 *)(IO_IIC_ADDR);
@@ -167,4 +206,37 @@ void vcnet_ir_out(const void *data, u32 datalen)
 	xil_printf("ir_out %u ms tsum %u\r\n",
 		(unsigned)(t1_ms - t0_ms),
 		(unsigned)debug_tsum);
+}
+#endif
+
+#define IO_HDMI_IN_STAT_ADDR 0x43c70000
+
+u32 vcnet_hdmi_in_stat_read()
+{
+	volatile u32 *addr = (volatile u32 *)(IO_HDMI_IN_STAT_ADDR);
+	return *addr;
+}
+
+#define IO_GPIO_ADDR 0x43c60000
+
+static u16 vcnet_gpio_cur_val = 0xffffu;
+
+void vcnet_gpio_setval(u16 val, u16 mask)
+{
+	vcnet_gpio_cur_val &= ~mask;
+	vcnet_gpio_cur_val |= (val & mask);
+	volatile u32 *addr = (volatile u32 *)(IO_IIC_ADDR);
+	addr[18] = vcnet_gpio_cur_val;
+}
+
+void vcnet_gpio_out(const void *data, u32 datalen)
+{
+	xil_printf("gpio_out %u bytes\r\n", (unsigned)datalen);
+	if (datalen < 4) {
+		return;
+	}
+	u16 const *tval16 = (u32 const *)data;
+	u16 val = tval16[0];
+	u16 mask = tval16[1];
+	vcnet_gpio_setval(val, mask);
 }

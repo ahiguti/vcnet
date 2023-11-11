@@ -25,8 +25,8 @@ parameter REWIND_THRESHOLD = 30000;
 localparam MAGIC_NUMBER = 32'hDEADBEEF;
 localparam MAGIC_NUMBER_SIZE = 4;
 
-(* ASYNC_REG = "TRUE" *) reg [2:0] sync_sclk;
-(* ASYNC_REG = "TRUE" *) reg [2:0] sync_din;
+(* ASYNC_REG = "TRUE" *) reg [2:0] metastability_guard_sclk;
+(* ASYNC_REG = "TRUE" *) reg [2:0] metastability_guard_din;
 
 reg [7:0] arr[0:ARR_BYTES-1];
 reg [7:0] arr_copy[0:ARR_BYTES-1]; // トランザクション開始時にarrからコピー
@@ -43,8 +43,8 @@ reg [31:0] stat_interval; // 直前回のトランザクション間インター
 assign DOUT = dout;
 assign STAT_INTERVAL = stat_interval;
 
-wire sclk = sync_sclk[2];
-wire din = sync_din[2];
+wire sclk = metastability_guard_sclk[2];
+wire din = metastability_guard_din[2];
 wire lsb_first = 0; // 既定ではmsb first。
 
 integer i;
@@ -64,8 +64,8 @@ always @(posedge CLK) begin
         stat_count <= 0;
         stat_interval <= 0;
     end else begin
-        sync_sclk <= { sync_sclk, SCLK };
-        sync_din <= { sync_din, DIN };
+        metastability_guard_sclk <= { metastability_guard_sclk, SCLK };
+        metastability_guard_din <= { metastability_guard_din, DIN };
         stat_count <= stat_count + 1;
         if (sclk == 0) begin
             sclk_low_count <= (sclk_low_count < 65535) ? (sclk_low_count + 1) : 65535;

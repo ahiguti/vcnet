@@ -1,9 +1,11 @@
 `timescale 1ns / 1ps
 
-// パケットにUDP, IP, ETERNETのヘッダを付ける。FCSは付けない。入力パケットの
-// 形式についての要件として、入力パケットの長さがパケットの最初のワードの下位16bitに書かれ
-// ていなければならない。それ以外の点については入力パケットの形式には制限は無い。
-// 長さを記した最初の16bitも出力パケットに出力される(そのためこのmoduleは任意形式のUDP
+// パケットにUDP, IP, ETERNETのヘッダを付ける。FCSは付けない。入力パケットの最初のワードに
+// パケットの長さがセットされていなければならない。最初のワードからパケット長を返す関数が
+// FN_ARG_FIRST_WORD, FN_RET_PKT_LENにセットされていなければならない。
+// ethernetフレームが64byte以上になるようにpaddingを入れるのは送信側の責任。
+// それ以外の点については入力パケットの形式には制限は無い。
+// 長さを記した最初のワードも出力パケットに出力される(そのためこのmoduleは任意形式のUDP
 // パケットを出力できるわけではない)。
 // SRC_MAC_ADDRなどの各種アドレスの値は、パケットの最初のワードを読みこんだサイクルでの
 // 値が採用され、そのサイクルでレジスタに取り込まれる。SRC_MAC_ADDR等は
@@ -19,6 +21,8 @@ input [3:0] I_TUSER,   // TDATAの有効なバイト数。8以下。
 input I_TLAST,
 output O_TVALID,
 input O_TREADY,
+output [63:0] FN_ARG_FIRST_WORD,
+input [15:0] FN_RET_PKT_LEN,
 output [63:0] O_TDATA,
 output [3:0] O_TUSER, // TDATAの有効なバイト数。8以下。
 output O_TLAST,
@@ -49,6 +53,8 @@ reg [15:0] dst_port;
 reg dst_enable;
 reg [15:0] pkt_len;
 reg [15:0] ipsum;
+
+assign FN_ARG_FIRST_WORD = I_TDATA;
 
 assign O_TVALID = out_tvalid && dst_enable; // dst_enable==0のときはパケットをdropする
 assign O_TDATA = out_tdata;
@@ -151,7 +157,7 @@ always @(posedge CLK) begin
             dst_ip_addr <= DST_IP_ADDR;
             dst_port <= DST_PORT;
             dst_enable <= DST_ENABLE;
-            pkt_len <= I_TDATA[15:0]; // 最初のワードの下位16bitから長さを読み取る。
+            pkt_len <= FN_RET_PKT_LEN; // 最初のワードがFN_ARG_FIRST_WORDにセットされたときにFN_RET_PKT_LENにパケット長が返ってくる。
             ipsum <= ipv4_sum_base;
             out_tvalid <= 1; // out_tvalid==1でもdst_enable==0ならパケットはdropされる。
             out_tdata <= { SRC_MAC_ADDR[15:0], DST_MAC_ADDR[47:0] };

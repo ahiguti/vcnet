@@ -1,4 +1,5 @@
-
+﻿
+#include "xtime_l.h"
 #include "vcnet_common.h"
 
 int verbose = 0;
@@ -15,3 +16,9 @@ void vcnet_write32(u32 addr, u32 value)
 	*p = value;
 }
 
+u64 vcnet_get_timer_cnt()
+{
+	XTime v = 0;
+	XTime_GetTime(&v);
+	return (u64)v; // COUNT_PER_SECONDS
+}

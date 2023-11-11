@@ -3,6 +3,7 @@
 	<name>vcnet</name>
 	<comment>Created by Vitis v2021.2</comment>
 	<projects>
+		<project>vcnet_1g</project>
 	</projects>
 	<buildSpec>
 		<buildCommand>

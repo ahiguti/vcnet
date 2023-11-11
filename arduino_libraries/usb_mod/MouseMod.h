@@ -35,10 +35,12 @@
 //================================================================================
 //  Mouse
 
+#ifndef MOUSE_LEFT
 #define MOUSE_LEFT 1
 #define MOUSE_RIGHT 2
 #define MOUSE_MIDDLE 4
 #define MOUSE_ALL (MOUSE_LEFT | MOUSE_RIGHT | MOUSE_MIDDLE)
+#endif
 
 class MouseMod_
 {

@@ -1,4 +1,4 @@
-#include "vcnet_common.h"
+﻿#include "vcnet_common.h"
 #include "vcnet_command.h"
 #include "vcnet_iic.h"
 #include <string.h>

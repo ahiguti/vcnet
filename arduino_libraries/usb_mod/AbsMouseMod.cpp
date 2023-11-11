@@ -3,13 +3,15 @@
 
 #if defined(_USING_DYNAMIC_HID)
 
+#define ABSMOUSE_REPORT_ID 3
+
 static const uint8_t DYNAMIC_HID_REPORT_DESCRIPTOR[] PROGMEM = {
 	0x05, 0x01,        // Usage Page (Generic Desktop Ctrls)
 	0x09, 0x02,        // Usage (Mouse)
 	0xA1, 0x01,        // Collection (Application)
 	0x09, 0x01,        //   Usage (Pointer)
 	0xA1, 0x00,        //   Collection (Physical)
-	0x85, 0x03,        //     Report ID (3)
+	0x85, ABSMOUSE_REPORT_ID,        //     Report ID
 	0x05, 0x09,        //     Usage Page (Button)
 	0x19, 0x01,        //     Usage Minimum (0x01)
 	0x29, 0x03,        //     Usage Maximum (0x03)
@@ -56,7 +58,7 @@ void AbsMouseMod_::report(void)
 	buffer[2] = (_x >> 8) & 0xFF;
 	buffer[3] = _y & 0xFF;
 	buffer[4] = (_y >> 8) & 0xFF;
-	DynamicHID().SendReport(3, buffer, 5);
+	DynamicHID().SendReport(ABSMOUSE_REPORT_ID, buffer, 5);
 }
 
 void AbsMouseMod_::move(uint16_t x, uint16_t y)

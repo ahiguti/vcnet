@@ -44,13 +44,13 @@
 /*
  * XPAR redefines
  */
-#define DYNCLK_BASEADDR 		XPAR_HDMI_OUT_AXI_DYNCLK_0_S_AXI_LITE_BASEADDR
+#define DYNCLK_BASEADDR 		XPAR_HDMI_OUT_AXI_DYNCLK_0_BASEADDR
 #define VDMA_ID 				XPAR_AXIVDMA_0_DEVICE_ID
 #define HDMI_OUT_VTC_ID 		XPAR_HDMI_OUT_V_TC_OUT_DEVICE_ID
 #define HDMI_IN_VTC_ID 			XPAR_HDMI_IN_V_TC_IN_DEVICE_ID
-#define HDMI_IN_GPIO_ID 		XPAR_AXI_GPIO_VIDEO_DEVICE_ID
+#define HDMI_IN_GPIO_ID 		XPAR_HDMI_IN_AXI_GPIO_VIDEO_DEVICE_ID
 #define HDMI_IN_VTC_IRPT_ID 	XPAR_FABRIC_HDMI_IN_V_TC_IN_IRQ_INTR
-#define HDMI_IN_GPIO_IRPT_ID 	XPAR_FABRIC_AXI_GPIO_VIDEO_IP2INTC_IRPT_INTR
+#define HDMI_IN_GPIO_IRPT_ID 	XPAR_FABRIC_HDMI_IN_AXI_GPIO_VIDEO_IP2INTC_IRPT_INTR
 #define SCU_TIMER_ID 			XPAR_SCUTIMER_DEVICE_ID
 #ifdef XPAR_PS7_UART_1_BASEADDR
 // Zybo
@@ -712,22 +712,74 @@ void vcnet_video_init(void)
 	DemoInitialize();
 }
 
-u8 *vcnet_video_get_frame_data(u32 idx, u32 *width_r, u32 *height_r)
+u8 *vcnet_video_get_frame_data(u32 idx)
 {
-	if (width_r != NULL) {
-		*width_r = videoCapt.timing.HActiveVideo;
-	}
-	if (height_r != NULL) {
-		*height_r = videoCapt.timing.VActiveVideo;
-	}
 	return pFrames[idx];
 }
 
-void vcnet_video_restart_video()
+void vcnet_video_get_video_size(u32 *width_p, u32 *height_p)
 {
+	if (width_p != NULL) {
+		*width_p = videoCapt.timing.HActiveVideo;
+	}
+	if (height_p != NULL) {
+		*height_p = videoCapt.timing.VActiveVideo;
+	}
+}
+
+static u32 disp_width = 0;
+static u32 disp_height = 0;
+
+void vcnet_video_start_disp(int restart_flag)
+{
+#if 0
+	if (restart_flag) {
+		DisplayStop(&dispCtrl);
+	}
 	DisplaySetMode(&dispCtrl, &VMODE_1280x720);
 	DisplayStart(&dispCtrl);
+	disp_width = 1280;
+	disp_height = 720;
+#endif
 }
+
+void vcnet_video_restart_disp_if(u32 w, u32 h)
+{
+	if (w == disp_width && h == disp_height) {
+		return;
+	}
+	if (disp_width != 0 && disp_height != 0) {
+		DisplayStop(&dispCtrl);
+	}
+	if (w == 0 || h == 0) {
+		disp_width = 0;
+		disp_height = 0;
+		return;
+	}
+	xil_printf("restart_disp old:%u,%u set:%u,%u\r\n", (unsigned)disp_width,
+		(unsigned)disp_height, (unsigned)w, (unsigned)h);
+	disp_width = w;
+	disp_height = h;
+	static const VideoMode *modes[] = {
+		&VMODE_640x480,
+		&VMODE_800x600,
+		&VMODE_1280x720,
+		&VMODE_1920x1080,
+	};
+	const int n = sizeof(modes) / sizeof(modes[0]);
+	int i = 0;
+	for (i = 0; i < n - 1; ++i) {
+		if (modes[i]->width >= disp_width && modes[i]->height >= disp_height) {
+			break;
+		}
+	}
+	// assert(i < n);
+	xil_printf("restart_disp mode %u,%u\r\n", (unsigned)modes[i]->width,
+		(unsigned)modes[i]->height);
+	DisplaySetMode(&dispCtrl, modes[i]);
+	DisplayStart(&dispCtrl);
+}
+
 
 u32 vcnet_video_get_video_frame()
 {

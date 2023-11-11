@@ -1,17 +1,107 @@
 
-- logmask 14 rawaudio.rawをfopenすると死ぬ
-- spi2が効かない。断線？
-- クライアント側リフレッシュレートが低いとvsync有効時にフレームが溜まる。
-- 信号線のプルダウン(done)
+--------------------------------------------------------------------------
+TODO
+
+- 現在時刻をサーバへ送信する
+- SDへログ出力
+- ethernet不達の状態から自動復帰
+- vcnet_mcu: 120Hzキャプチャ、60Hzディスプレイで音声がおかしくなる
+- vcnet_1g: フレーム間隔が不安定なのは何が原因か
+  - ネット。ホスト側でvcnet以外のネットワークアクセスがあると遅延する。
+  - lwipでtcp windowが65535 byteまでしか設定できないので吸い取るのが遅いと
+    すぐに送信側がブロックする。linuxにするといいのか？
+  - クライアントのRCVBUFは十分大きいので吸い取るスレッドの処理が遅いせいでは
+    なく、tcp/ipスタックのせいではないか？
+- vcnet_mcu: modifier keyが2回押されてる？
+- vcnet_1g: たまにnetframe too large tag0=5 tag1=19ea42c
+  - tagの値がおかしい
+- vcnet_1g: deinterlacingのうまいやりかた
+- capture: 1ms sleepするのではなく、vsyncかvideo captureのどちらかでwait
+  するように。
+- capture: msgに反映
+- yuy2: yuv->rgb変換の係数を仕様通りに。
+- glTexImage2DではなくPixel Buffer Objectで転送してみる
+  - https://stackoverflow.com/questions/9863969/updating-a-texture-in-opengl-with-glteximage2d
+- video_use_sample_reader
+- absmouse 効かないことがある
+  - recalc_draw_rect呼ばれないうちは効かない
+- FIXME: vcnet_main.c
+    value |= ((now & 32) != 0) ? 0x01 : 0x00;
+    これ何？ ここは常に0x01を返すのが正しいのでは？
+- video/audio無しのvcnetサーバをmcuだけで作れないか
+  - bit bangingでmcu間broadcast通信してみる
+- video/audio無しのvcnetサーバをmicroblazeで
+- captureモードのときのmessage表示
+- captureモードのビデオ表示をopenglでやる？
+- 現状のYUVのdownsamplingの方法はあまりよくないのではないか。
+  - YUV422のCbとCrは同じ位置(偶奇の中間)のサンプルとするべきでは？
+    - 4:2:2 BT.601は左(偶数)のサンプルとしている？
+      https://learn.microsoft.com/en-us/windows/win32/medfound/recommended-8-bit-yuv-formats-for-video-rendering
+- 1gと10gのverilogソース差分解消
+- vcnet_1g mbpのマウスおかしい
+- artyz7-10 auto negoにしないとサーバがうごいてない？
+- linux client: vcnet-1g 30i?
+  - linuxがクライアントのときわずかに60i間に合わない
+  - WSLではどうか？
+  - vcnet-1gもudp実装するか？
+- linux client: game controller
+- FIXME: document: mtu 9000
+- FIXME: document: RCVBUF
+  - vcnet_10g linuxクライアント、RCVBUFを大きくしないとudpが落ちる
+    - net.core.rmem_max = 33554432
+    - net.core.wmem_max = 33554432
+- オートメーション
+- lwip: object ownership確認
+- lwip: callbackの中でpcbをcloseしてよいのか？
+- Lightning Digital AVアダプタ出力をvcnet_1gで読めない。10gは読める。
+  - 720pだとどうか？ -> だめ
+- 巻き添えでdevice0が起床する
+  - devide0でもspi0でもなく、ha77が起床する
+  - ha77のusb起床を無効化して回避
+- 10g: HDMIパススルー出力へSPDIFで音声を
+- 10g: 60hzディスプレイでウインドウ移動すると極端に遅延する
+- wolをサーバからも送る
+- samdでabsmouse有効にするとクラッシュする
+  - joystickを無効にするとどうか？
+- picoでmbedのほうもreport送信失敗時リトライできるか
+- 10g: HDMIパススルー出力へSPDIFで音声を
+- ウインドウ移動中に止まる
+  - SetTimerで回避 -> 動作がおかしくなる
+  - タイトルバーをクリックしたまま動かさないとイベント止まる
+- GL版YUV411、左右端の色相がわずかに灰色になるのを避けられないか？
+- 1g: dram経由せずにパススルー出力できないか
+  - 試行: out側vtcのvsyncをin側に同期
+  - 試行: in,out両方のvtc
+- GUIを開いているあいだマウスを微量動かしてsuspend防止
+- cstがpicoだと動かない？
+- FIXME: document: ItsyBitsy M0 ビルドに Adafruit DotStar 必要
+- PicoSDK版、Mouse.hの関数ををpublicにしないといけない
+- PicoSDK版、Joystickのhatの計算おかしいのでpackageソース修正
+- suspend/resume時におかしくなる。windowsクライアント。
+- GUI表示中はマウスイベントを送ってsleepしないようにする
+- imgui: GLESでないときは2.0コンテキストでもVAO使ってしまっているのでは？
+- FIXME: document: DynamicHIDなど、必要なライブラリの整理。
+- FIXME: document: arduinoライブラリの権利表示
+- FIXME: document: macos absmousebutton=1が必要
+- pro micro -> macos USE_ABSMOUSE有効のときマウスボタンが効かない
+  - absmousebutton=1にすると効く
+- pro micro -> macosで取りこぼしている？
+- ios: wolのudpブロードキャストができない？
+- SPI信号、かなりオーバーシュートしている。
+- formatの番号 1がYUV411 に統一？
+  - svr_flagsでは2がyuv411だがvideoフレームのフラグは上位から生やしたので
+    bit逆順になっている。
+- メモ: fpgaの前段にHDMI分配器をいれると切り替え時にvcnetサーバがクラッシュ
+  している?(xvtcの問題?)
+  - watchdogが発動しているもよう
+  - クライアントはHDMIデバイス切り替え時に接続を切らないようにする。
+- 壊れたデータを受信するとクラッシュしている？
+- hid_intervalを大きくするとマウスを左右に振ったとき右にずれる
+- メモ: USB alt mode displayport -> HDMI 変換アダプタ vcnet-1gでは動作せず。
+  vcnet-10gでは問題ない。
 - messageの右端がpitchまで伸ばされている
-- mbpのcaps lockへのmapが効いていない？
 - zybo: yuv, opengl対応に更新
-- gl: メッセージ文字列(done9
-- gl: バイリニア補間(done)
-- yuv: ピクセル偶奇が裏返ることがある(done)
 - yuv: tlastが出ていないが大丈夫なのか
-- glのときabsmouseが効かないのはなぜ？(done)
-  - get_cur_draw_rectが取れないため
 - pi pico サスペンドから復帰時にクラッシュすることがある？
 - PASS THROUGH MODEを試す
 - spiで渡すデータの末尾のdeadbeefだけでなく頭にも入れる必要がある。
@@ -19,12 +109,74 @@
 - SDLのaudioバッファを小さくすると壊れるので、音声遅延が大きい。
 - udp10g: PCからのUDPパケットの末尾に無駄な0が入っている？
 - udp10g: dropするときの原因を調べる
-- ウインドウ移動中に止まる  SDL_SetModalLoopCallback?
-  もうすぐリリースされる？
-- macに右altが無い
 - capsが一度しか効かないのは何故？
 - パスワード
 
+--------------------------------------------------------------------------
+DONE
+
+- mbpのunderlineが効かないことがある。keymapの問題では。(done)
+- capture: RALT+Yでフォーマットを変えられるように(done)
+- yuy2: 読んでいるテクスチャオフセットがおかしい?(done)
+  - loc_video_sizeに渡す値がおかしかった
+- vcnet_1g: 接続が切れるとvideoが送られてこなくなる(done)
+  - open_socket直後にsend_server_flagsを呼ぶ
+- itsybitsyでabsmouseが使えない？(done)
+  - capture_video有効のときcur_draw_rectがセットされていなかったため。
+- captureでfullscreen(done)
+- capture中fullscreenでguiを閉じると画面更新されなくなる(done)
+  - hide/showして回避。ただしfocusが一度失われる。
+- vcnet_1g yuv411 上でlagtest_modeを動かすと色化け(done)
+  - #0000ffだけが色化けする
+  - rgb24_to_yuv444_fullswing.v
+- vcnet_1g audioおかしい？(done)
+  - 一つ前のビルドでは問題なし
+  - vcnetサーバがudpで送信する箇所のバグ
+- absmouseを動的変更(done)
+- video,audio送信を止められるように(done)
+  - server_flagsのbit1, bit2が立っていればvideo, audioを送信しない
+- vcnetサーバを複数指定できるようにする(done)
+- WOL効いていない(done)
+- 重複フレームカウント(done)
+- クライアント側リフレッシュレートが低いとvsync有効時にフレームが
+  溜まる?(done)
+  - クライアント側50Hzなど
+- vcnet_10g: パススルー出力(done)
+- ir送信中はサーバのイベントループが止まるので一瞬マウスが固まる(done)
+  - PLでウェイトを入れるようにして、CPUは止めないようにした
+- YUVへの変換の計算方法 fullswing (done)
+- vcnet1g: デフォルト1920x1080に。(done)
+- pi picoはやはりusbがたまにおかしい？(done)
+  - clipboardのペーストで化ける。
+  - joystick: send_nowがときどきreport送信に失敗している
+  - usb hidのreport送信失敗したらリトライするようにした
+    - misc/rp2040_3_1_0_usb_fix.patch
+- メモ: 165HzディスプレイとHDMI切替ソースを"複製する"にしている場合、その
+  HDMI切替ソースが選択されているときにはVSYNCが60Hzになり、非選択のときは
+  VSYNCが165Hzになる。windowsの場合。
+- artyz7-20: HDMI出力が1920x1080のとき映らない(done)
+  - 2018.2向けhdmi-inサンプルでは映る。これをベースに。
+- axis_rgb2yuv411 ファイル名typo(done)
+- gui: 詳細ステータス表示(done)
+- artyz7: HDMI出力の解像度追従、GとB入れ替え[7:0]と[15:8](done)
+- フルスクリーンにしたときにカーソルが出ない(done)
+- corrupted data tag0=1 ...(done)
+- 4号機のHDMI切り替え(done)
+- vcnet-10g: クライアントのopengl版がおかしい(done)
+  - 現在のバージョンではおかしくない
+    - クライアントのバグ。draw_window_gl()の中glTexImage2Dの引数誤り。
+- サーバから送信するフレームレートを制限できるようにする？(done)
+  - 帯域足りていないときにスムースになる？
+- FIXME: androidのassets内mplusフォントを丸呑みしているのをやめる(done)
+- logmask 14 rawaudio.rawをfopenすると死ぬ
+- spi2が効かない。断線？ -> はんだ不良(done)
+- 信号線のプルダウン(done)
+- mbpのcaps lockへのmapが効いていない？(done)
+- gl: メッセージ文字列(done)
+- gl: バイリニア補間(done)
+- yuv: ピクセル偶奇が裏返ることがある(done)
+- glのときabsmouseが効かないのはなぜ？(done)
+  - get_cur_draw_rectが取れないため
 - ubuntu22でvivadoが死ぬ (done)
   - XWaylandを使うと死ぬもよう。2018.2でも直ってないもよう。
   - https://support.xilinx.com/s/article/70442?language=ja
@@ -53,6 +205,7 @@
 - i2sが48khzでないときがある(done)
 - ブレッドボード無しでi2s(done)
 - キーボード状態をリセットするコマンド(done)
+- macに右altが無い(done)
 - キーpress/releaseを正確に
   - キーリピート時に無駄に送信しない(done)
 - 状態をLEDで(done)
@@ -122,6 +275,9 @@ i2c_master.vをaxiから操作
                読み出したデータはFIFOから削除される
 +16 +0x40:
   GPIO         (write)HDMIスイッチ制御の赤外線センサ信号に使用
++18 +0x48:
+  SVR_FLAGS[7:0] (write)サーバ設定。下2bitは画像フォーマット。
+
 
 処理の流れ:
 1. READYが1になるまで待つ。
@@ -693,4 +849,595 @@ c00, c01, c10, c11とすると、以下でbilinear補間。
 c0 = mix(c01, c00, a.x);
 c1 = mix(c11, c10, a.x);
 c = mix(c1, c0, a.y);
+
+------------------------------------------
+ESP32 SPI
+VSPI MOSI: GPIO23, MISO GPIO 19, SCLK GPIO 18, CS GPIO 5
+CK_IO0 SCLK #0 - ESP32 GPIO 18
+CK_IO1 MISO #0 - ESP32 GPIO 19
+
+------------------------------------------
+Y = 0.299R + 0.587G + 0.114B
+Cb = -0.168736R - 0.331264G + 0.5B
+Cr = 0.5R - 0.418688G - 0.081312B
+R = 1Y +0Cb +1.402Cr
+G = 1Y -0.344136Cb -0.714136Cr
+B = 1Y + 1.772Cb +0Cr
+
+------------------------------------------
+Y = 0.2126 + 0.7152G + 0.0722B       (0 .. 1)
+Cb = - 0.114572R - 0.385428G + 0.5B (-0.5 .. 0.5)
+Cr = 0.5R - 0.454153G - 0.045847B (-0.5 .. 0.5)
+R = 1Y + 0Cb + 1.5748Cr
+G = 1Y - 0.187324Cb - 0.468124Cr
+B = 1Y + 18556Cb - 0Cr
+
+257(=65535/255)倍
+y0 = 54.6382r + 183.8064g + 18.5554b
+cb = - 29.445004r - 99.054996g + 128.5b
+cr = 128.5r - 116.023421g - 11.782679b
+整数に丸め
+(55, 184, 19)     (0 .. 65535)
+(-29, -99, 129)   (-32768 .. 32767)
+(129, -116, -12)  (-32768 .. 32767)
+257で割って
+(0.2140077821, .7159533073, .0739299610)
+(-.1128404669, -.3852140077, .5019455252)
+(.5019455252, -.4513618677, -.0466926070)
+逆行列
+0.99003705636608        2.4518018959E-4         1.5701943578505
+0.99867965308817        -0.19068878649899       -0.46866167238607
+0.98899504097659        1.8459606233309         -0.006681156506554
+
+y0cbcrを16bit整数で計算、cbとcrは+32768を加える。
+16bit値を256で割る。これが(0 .. 255)の値になる。
+シェーダには0..1の値が渡る。cbとcrは0.5を減ずる。
+上の逆行列でRGB値を計算。(0..1)の値になる。
+
+------------------------------------------
+メモ: android-project
+- SDL2-2.26.3.tar.gzを~/buildの下に展開
+- SDL2_ttf-2.20.2.tar.gzを~/buildの下に展開
+- SDL2-2.26.3/android-projectディレクトリをvcnet_clientの下にコピー
+- android-project/app/jniの下で ln -s ~/build/SDL2-2.26.3 SDL2
+- android-project/app/jniの下で ln -s ~/build/SDL2_ttf-2.20.2 SDL2_ttf
+- app/jni/src/Android.mkのLOCAL_SRC_FILESを書き換える
+- app/jni/src/Android.mkのLOCAL_SHARED_LIBRARIESにSDL2_ttfを追加
+- app/jni/src/Application.mkに APP_STL := c++_shared を追加
+- SDLActivity.java: getLibrariesにSDL2_ttf
+- AndroidManifest.xml
+    <uses-permission android:name="android.permission.INTERNET" />
+- source android_env.sh
+- ./gradlew installDebug
+
+
+------------------------------------------
+IPコア差分
+            サンプル      vcnet
+rgb2dvi     1.3(Rev.3)    1.4(Rev.8)
+axi_dynclk  1.0(Rev.3)    1.1(Rev.16)
+dvi2rgb     1.7(Rev.3)    2.0(Rev.5)
+
+------------------------------------------
+送信と表示を独立させるには
+
+ビデオフレームの最後のラインを送信した後の処理
+if (offset_line == 0) {
+  cur_read_frame ^= 1u;
+  vcnet_video_set_video_frame(cur_read_frame ^ 1u, cur_read_frame);
+    // 最初の引数がキャプチャ書込みするアドレス、次の引数が出力するアドレス。
+  video_frame_data = vcnet_video_get_frame_data(cur_read_frame, &v, &h);
+  waiting_flip = 1;
+}
+vcnet_video_set_video_frame呼び出しでは、キャプチャ書込みアドレスとして
+ネットワーク送信が完了した領域を指定している。waiting_flip=1にすると、
+キャプチャ書込みアドレスが指定した領域に切り替わるまで待ち、切り替わった
+ことを確認すると、書き込んでいないほうの領域のネットワーク送信を開始する。
+
+送信領域と表示領域を別々に指定するには
+cur_read_frame: 送信中のフレーム。ただしwaiting_flip=1のときは送信待機。
+cur_disp_frame: 表示するように指定したフレーム。切り替わるまでは1フレーム
+  未満の時間がかかる。
+cur_video_frame: キャプチャ書き込みに指定したフレーム。切り替わるまでは
+  1フレーム未満の時間がかかる。
+キャプチャ書き込みが現在どのアドレスで起きているかは43c30000
+(peek_dma_addr.vが取得しているアドレス)を読めばわかる。
+
+以下誤り。
+# dispとvideoを2枚の領域を交互に指定しているのは、走査タイミングによっては
+# おかしな表示になるのでは？ただしくは、
+# 1. video領域切替を指定する
+# 2. video領域が切り替わる(dmaアドレスを見て確認する)まで待つ
+# 3. disp領域を、先にvideo領域であった場所へ切替指定する
+# のようにする必要がある。video領域切替の際には、disp指定とdisp dmaのどちら
+# でもない領域を指定する必要があるので、3枚分のバッファを必要とする。
+# 送信と表示を独立させるためには、送信領域を含め4枚分のバッファが必要。
+以上誤り。
+
+dispとvideoのvsyncの位相がほぼ一致していたとすると、vsyncの半周ずれた
+あたりでdispとvideoの領域を別々のものに指定すれば、必ず別々の領域でdma
+転送がおきる。
+dispとvideoのvsyncの位相が半周ずれていたとすると、videoのvsyncのあたりで
+dispの領域を(dispと同じものに)切り替え、dispのvsyncのあたりでvideoの領域を
+(videoと同じものに)きりかえればよい。
+
+videoのdmaが1になったらなるべく早くvideoに0、dispに1を指定する。
+そうすればvideoのdmaアドレスになるべくすぐうしろをdispのdmaが追いかける
+ようになる。video dmaに対するdisp dmaの遅れは、1周期+alpha、alphaは1周期
+よりもじゅうぶん短いので、2枚のバッファリングで追いつくことはない。
+
+送信領域と表示領域を別々に指定するには、送信が60hzに追いつかないことがある
+なら3枚のバッファが必要。
+cur_video_frame = 0;
+cur_disp_frame = 1;
+cur_read_frame = 1;
+vcnet_set_video_frame(cur_vide_frame, cur_disp_frame);
+while (true) {
+  video_dma_frame = (現在のvideo読み込みdmaアドレスのいる領域)
+  if (video_dma_frame == cur_video_frame) {
+    // 指定された領域へのdma書き込みが始まった
+    cur_disp_frame = cur_video_frame;
+      // dispはvideoのdmaアドレスのなるべく直後を追いかける
+    if (waiting_flip) {
+      cur_read_frame = cur_video_frame;
+      waiting_flip = 0;
+    }
+    cur_video_frame = (readでもdispでもない値)
+  }
+}
+
+1,1,3,2,6,4,12,8
+1,3,2,6,4,12,8,9
+
+------------------------------------------
+adv7511
+
+ADV7511のD[23:8]しかFPGAボードにつながっていない。
+Page 24 of 58, Table 7
+YCbCr 4:2:2 Formats Input Data Mappng:
+R0x48[4:3] = 01 (right justified)
+これの Style 1 にすればよい。
+(並びが変わるだけでStyle 2 or 3 でもよい。)
+Style は R0x16[3:2]にセットする。
+R0x48[4:3] = 01, InputID(R0x15[3:0]) = 1 or 2
+InputID = 1: separate syncs.
+InputID = 2: embedded syncs.
+R0x16[5:4]にdata bit width
+
+R0x15
+  [3:0] Input ID, 1でいい？
+  8'h01
+R0x16
+  [7] Output Format, 0: 4:4:4, 1: 4:2:2 (1でよい)
+  [5:4] Color Depth, 11 = 8bit
+  [3:2] Input Style, 01 = style 2, 10 = style 1, 11 = style 3 (style2?)
+  [1] DDR Input Edge, (関係なし)
+  10110100?
+  8'hb4
+
+メモ:
+ha-fpga-misc/zed_adv7511 にYUV422表示できているらしいadv7511設定を
+保存しておいた。
+
+--------
+test_mul_fixed_ku115
+test_mul:
+  multiply_fixed使用:
+    CLB LUTs 48 CLB Registers 46 CARRY8 8 CLB 10 LUT as Logic 48 LUT FF 34
+    全体 LUT 1475 FF 2270
+  直接assign:
+    CLB LUTs 45 CLB Registers 45 CARRAY8 8 CLB 8 LUT as Logic 45 LUT FF 30
+
+--------
+2048ワードのリングバッファ
+reg [23:0] data[0:2047];
+reg [7:0] ctrl[0:2047];
+reg [11:0] cwoffset, roffset, dwoffset, ndummy;
+cwoffsetは0から開始で毎クロックインクリメント、roffsetは8くらいから開始で
+毎クロックインクリメント。差は常に変わらない。
+dwoffsetは!DEならcwoffsetと同一の値、DE && VALIDならインクリメント、
+DE && !VALIDならインクリメントしない。
+DE && !VALIDならndummyをインクリメント。
+!DEならndummyを0に。
+if (!RESETN) begin
+  cwoffset <= 0;
+  dwoffset <= 0;
+  roffset <= 8;
+end else begin
+  cwoffset <= cwoffset + 1;
+  roffset <= roffset + 1;
+  if (!I_DE) begin
+    dwoffset <= cwoffset + 1;
+  end else if (I_VALID) begin
+    dwoffset <= dwoffset + 1;
+  end
+  ctrl[cwoffset] <= I_CTRL;
+  data[dwoffset] <= I_DATA;
+  o_ctrl <= ctrl[roffset];
+  o_data <= data[roffset];
+end
+
+--------
+xが奇数のピクセルのみ出力(VALID==1)する。
+O_Y0 = y_7; 偶数ピクセルののY値
+O_Y1 = yuv[6][23:16]; 奇数ピクセルのY値。Y0の右ピクセル。
+O_UV = uv_6;
+uv_6はxが偶数ピクセルのときにセットされ、奇数のときは変化しないので
+出力されるのは0のときのU, 2のときのV値。
+Y0: x==0,2のY値
+Y1: x==1,3のY値
+UV: x==0のU値、x==2のV値
+
+--------
+シェーダ
+pcx4_iはピクセルのxを4で割った余り。0, 1, 2, 3のいずれか。
+pcx4_iが0のとき、U値はその位置のピクセルを引けばよい 現pairのUV値を引く
+                 V値は-2と+2の平均 左pairのUV値と右pairのUV値を引く
+pcx4_iが1のとき、U値は-1と+3を3:1 現pairのUV値と右右pairのUV値を引く
+                 V値は-3と+1を1:3 左pairのUV値と右pairのU値を引く
+pxc4_iが2のとき、U値は-2と+2の平均 左pairのUV値と右pairのUV値を引く
+                 V値はその位置のピクセルを引けばよい 現pairのUV値を引く
+pxc4_iが3のとき、U値は-3と+1を1:3 左pairのUV値、右pairのUV値を引く
+                 V値は-1と+3を3:1 現pairのUV値と右右pairのUV値を引く
+
+--------
+RGBへ戻す
+1, 0, 1.13983
+1, -0.39465, -0.58060
+1, 2.03211, 0
+
+--------
+pi pico
+GP16 = SPI0 RX
+#GP17 = SPI0 CSn
+GP18 = SPI0 SCK
+#GP19 = SPI0 TX
+
+CK_IO11 SCLK #4 - GP18
+CK_IO12 RX - GPI16
+
+--------
+QT py
+D8 SCK - CK_IO11
+D9 MISO - CK_IO12
+
+-------
+yuv full swing
+
+[0..255]と[-128..127]に収まる
+Y = +77r +150g +29b
+Cb = -43r -84g +128b
+Cr = +127r -106g -21b
+CbとCrは128加えて[0..255]に収める
+
+GLSLで逆変換
+CbとCrに(128/255)を減じ、次でRGBに変換
+[[ 9.96074463e-01  4.93749408e-03  1.40562660e+00]
+ [ 9.97438770e-01 -3.44325245e-01 -7.21328904e-01]
+ [ 9.89187958e-01  1.76788275e+00 -1.16940649e-03]]
+
+77;150;29;43;84;128;127;106;21
+77 1001101
+150 10010110
+29 11101
+43 101011
+84 1010100
+128 10000000
+127 1111111
+106 1101010
+21 10101
+
+-------
+5/4 名前変更
+PEEK_DMA_ADDR (verilogソースも変更9
+HDMI_IN_GPIO
+HDMI_IN_STAT
+
+-------
+電力
+vcnet_1g: 待機2W, 使用3W
+PC4台 静止30W
+vcnet_10g: 待機12W, 使用12W
+dell: 待機0W, 静止47W, 最大165W
+habuild: 待機1W, 静止24W, 最大100W
+ha77: 待機0W, 静止40W, 最大330W
+ha117: 待機0W, 静止90W, 最大500W
+
+------------------------------------------
+aesku040
+mt25qu256-spi-x1_x2_x4
+
+------------------------------------------
+nmcli connection modify (interface-name) 802-3-ethernet.mtu 9000
+
+/etc/sysctl.conf
+net.core.rmem_max = 33554432
+net.core.wmem_max = 33554432
+
+------------------------------------------
+windows client, switch1, 60i
+vcnet_send_data sendvideo_time=4605 15561 300
+vcnet_send_data sendvideo_time=4605 19660 300
+vcnet_send_data sendvideo_time=4697 18249 300
+vcnet_send_data sendvideo_time=4717 25531 300
+vcnet_send_data sendvideo_time=4656 17327 300
+vcnet_send_data sendvideo_time=4607 19677 300
+vcnet_send_data sendvideo_time=4603 18750 300
+
+linux client, switch1, 60i
+[  2] 20.0-25.0 sec  27.5 KBytes  45.0 Kbits/sec
+vcnet_send_data sendvideo_time=4927 153420 300
+[  2] 25.0-30.0 sec  27.5 KBytes  45.0 Kbits/sec
+vcnet_send_data sendvideo_time=4932 153424 300
+[  2] 30.0-35.0 sec  27.5 KBytes  45.0 Kbits/sec
+vcnet_send_data sendvideo_time=4906 153438 300
+[  2] 35.0-40.0 sec  27.5 KBytes  45.0 Kbits/sec
+vcnet_send_data sendvideo_time=4912 153356 300
+[  2] 40.0-45.0 sec  27.5 KBytes  45.0 Kbits/sec
+vcnet_send_data sendvideo_time=4899 153390 300
+[  2] 45.0-50.0 sec  27.5 KBytes  45.0 Kbits/sec
+vcnet_send_data sendvideo_time=4917 153392 300
+[  2] 50.0-55.0 sec  27.5 KBytes  45.0 Kbits/sec
+
+---------------------------------------
+125000000bytes/sec
+125000bytes/msec
+125bytes/usec
+
+xtime_l.h
+COUNTS_PER_SECOND がCPUクロック周波数の半分
+
+n byte送信するごとに n/125M sec = n/125M*COUNTS_PER_SECONDS count
+n * COUNTS_PER_SECONDS / 125000000 count
+KCNT = (1024 * COUNTS_PER_SECONDS / 125000000)
+n byte送信するごとにtimerを n * KCNT / 1024 カウント待てばよい
+
+------------------------------------------
+vcnet_1gで#0000ffが色化けする
+
+RGB 00 00 fe
+YUV 1D FF 6B
+Y0Y1UV 1D 1D FF/6B
+
+RGB 00 00 ff
+YUV 1d 00 6b
+Y0Y1UV 1d 1d 00/6b
+Uがおかしい。
+
+u <= (u_16 + 128 + 32768) >> 8;
+u_16 = 0x7f80;
+0x7f80 + 0x80 + 0x8000 ちょうどあふれる
+
+
+------------------------------------------
+bit-banging
+digitalWrite2回を1000回ループ
+sparkfun pro micro 21100 us
+
+
+------------------------------------------
+UARTとdigital 0, digital 1 が共通
+
+Uno, Nano, Mini, Mega, Due は共通なのでdigital 0と1を使えない
+Leonardo, Micro, Zero は別なのでdigital 0と1は使える？
+
+------------------------------------------
+AVR bit-banging 並列
+
+port B: digital 8 to 13
+port C: analog input pings
+port D: digital 0 to 7
+
+DDRD: port D data direction register (r/w)
+PORTD: port D data register (r/w)
+
+#define DDRD      _SFR_IO8(0x11)
+#define _SFR_IO8(io_addr) ((io_addr) + __SFR_OFFSET)
+
+#define _BV(bit) (1 << (bit))
+
+信号6本 LAST, CLK, DATA[3:0] 全部pullup CLKの正エッジでサンプリングする
+read側動作:
+1. LASTが1になるまで待つ
+2. LASTが0になるまで待つ
+3. CLKが1になるまで待つ
+4. DATA[3:0]とLASTを読む。LASTが1なら最後のデータなので終了
+6. CLKが0になるまで待つ
+7. 3.へ戻る
+
+write側動作:
+0. トランザクション開始前は全部の信号を1にする
+1. DATA[3:0]をセット、LASTに最後のデータかどうかをセットし、CLKを0にする
+2. 少し待つ
+3. CLKを1にする
+4. 少し待つ
+5. 終了でないなら2.へ戻る
+
+------------------------------------------
+Uno R4 micros()がさかのぼる
+
+unsigned long micros() {
+        // Convert time to us
+        NVIC_DisableIRQ(main_timer.get_cfg()->cycle_end_irq);
+        uint32_t time_us = ((main_timer.get_period_raw() - main_timer.get_counter()) * 1000 / main_timer.get_period_raw()) +  (agt_time_ms * 1000);
+        NVIC_EnableIRQ(main_timer.get_cfg()->cycle_end_irq);
+        return time_us;
+}
+((period - couter) * 1000 / period) + (agt_time_ms * 1000)
+
+パッチ作成済
+
+------------------------------------------
+Uno R4
+
+extern "C" const PinMuxCfg_t g_pin_cfg[] = {
+  { BSP_IO_PORT_03_PIN_01,    P301   }, /* (0) D0  -------------------------  DIGITAL  */
+  { BSP_IO_PORT_03_PIN_02,    P302   }, /* (1) D1  */
+  { BSP_IO_PORT_01_PIN_05,    P105   }, /* (2) D2  */
+  { BSP_IO_PORT_01_PIN_04,    P104   }, /* (3) D3~ */
+  { BSP_IO_PORT_01_PIN_03,    P103   }, /* (4) D4  */
+  { BSP_IO_PORT_01_PIN_02,    P102   }, /* (5) D5~ */
+  { BSP_IO_PORT_01_PIN_06,    P106   }, /* (6) D6~ */
+  { BSP_IO_PORT_01_PIN_07,    P107   }, /* (7) D7  */
+  { BSP_IO_PORT_03_PIN_04,    P304   }, /* (8) D8  */
+  { BSP_IO_PORT_03_PIN_03,    P303   }, /* (9) D9~  */
+  { BSP_IO_PORT_01_PIN_12,    P112   }, /* (10) D10~ */
+  { BSP_IO_PORT_01_PIN_09,    P109   }, /* (11) D11~ */
+  { BSP_IO_PORT_01_PIN_10,    P110   }, /* (12) D12 */
+  { BSP_IO_PORT_01_PIN_11,    P111   }, /* (13) D13 */
+  { BSP_IO_PORT_00_PIN_14,    P014   }, /* (14) A0  --------------------------  ANALOG  */
+  { BSP_IO_PORT_00_PIN_00,    P000   }, /* (15) A1  */
+  { BSP_IO_PORT_00_PIN_01,    P001   }, /* (16) A2  */
+  { BSP_IO_PORT_00_PIN_02,    P002   }, /* (17) A3  */
+  { BSP_IO_PORT_01_PIN_01,    P101   }, /* (18) A4/SDA  */
+  { BSP_IO_PORT_01_PIN_00,    P100   }, /* (19) A5/SCL  */
+
+  { BSP_IO_PORT_05_PIN_00,    P500   }, /* (20) Analog voltage measure pin  */
+};
+
+Port1を使うか。D2からD7の6本が使える。
+Port1, [7:2]を使う。bit順に注意。
+
+8bit版bitbanging(sketch_renesas_bitbanging)はSPIと重なるので不可。
+
+------------------------------------------
+
+glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width,
+  GLsizei height, GLint border, GLenum format, GLenum type, const void *data);
+
+target
+    書込先テクスチャの種類。その種類をtargetとしてbindされているテクスチャへ
+    データが書き込まれる。GL_TEXTURE_2Dなど。
+level
+    書込先テクスチャのどのmipmapレベルへ書き込むかを指定する。
+internalformat
+    書込先テクスチャの形式を指定する。GL_RGBAのようなbase internal formatか、
+    GL_RGBA8のようなsized internal formatなどを指定できる。
+width
+    テクスチャの幅
+height
+    テクスチャの高さ
+border
+    これは0にしなければならない
+format
+    Specifies the format of the pixel data.
+    'format' determines the composition of each element in 'data'.
+    おそらくpixel dataとは引数'data'のこと。elementとはおそらく個々のピクセル、
+    compositionとは個々のピクセルのデータを構成するR, G, Bなどの成分(おそらく
+    componentと呼んでいるもの)の組み合わせと並び順のこと。
+type
+    Specifies the data type of the pixel data.
+    おそらくpixel dataとは引数'data'のこと。
+    (https://www.khronos.org/opengl/wiki/Pixel_Transfer)
+    format G_RGBAでtypeがGL_UNSIGNED_BYTEなら各pixelは4byteからなることを表す。
+    typeとしてGL_UNSIGNED_SHORT_5_6_5のようなもの(packed type)をtypeに指定
+    すると、1ピクセルがGL_UNSIGNED_SHORTでRGBがそれぞれ5, 6, 5bitからなる
+    ことを表す(endiannessは?)。
+data
+    Specifies a pointer to the image data in memory.
+    おそらくimage dataとpixel dataとは同じもの。
+    一個のピクセルのデータを'format'と'type'で指定した形式のバイト列を、
+    widthだけ繰り返し、さらにそれをheightだけ繰り返した形式のメモリ領域
+    の先頭アドレスを'data'に指定する(ものと思われる)。
+
+------------------------------------------
+YUY2
+
+Y, U, Y, V のバイト順。
+UとVは2ピクセルのうち左側のピクセルの値が書かれている。右側のピクセルの
+値は補間する。
+
+------------------------------------------
+NV12
+
+Y値を1920*1080バイト、
+その次にUV値を交互に1920*540バイト。
+UV値を引く処理:
+uvx = floor(pc.x * 0.5)
+uvy = floor(pc.y * 0.5)  あとでvideo_sizeを加える
+左上ピクセル: (uvx,uvy), (uvx,uvy-1) を引き平均する
+左下ピクセル: (uvx,uvy), (uvx,uvy+1) を引き平均する
+右上ピクセル: (uvx,uvy), (uvx,uvy-1), (uvx+1,uvy), (uvx+1,uvy-1)
+右下ピクセル: (uvx,uvy), (uvx,uvy+1), (uvx+1,uvy), (uvx+1,uvy+1)
+
+------------------------------------------
+バッファロー3入力
+
+#1
+(spresense)
+9002,4547,550,579,519,611,518,611,519,579,550,579,550,580,518,611,519,579,550,1709,549,1709,519,1709,549,1709,519,1709,549,1709,519,1709,549,1709,519,610,519,610,519,1709,549,580,519,610,519,580,549,580,549,580,519,1739,519,1709,549,580,519,1709,549,1709,549,1709,519,1709,549,1709,519,40405,9002,2289,549
+
+9033,4516,550,549,580,549,549,580,549,580,550,549,580,549,549,580,549,580,550,1678,580,1678,550,1678,580,1678,550,1708,550,1678,550,1708,550,1709,549,580,519,579,550,1709,549,580,519,610,519,580,549,580,549,580,549,1709,519,1709,549,580,519,1709,549,1709,519,1739,519,1709,549,1709,519,40405,9002,2258,580
+
+(due)
+9012,4511,566,581,539,582,537,583,542,583,537,582,537,583,544,581,539,586,539,1707,537,1680,564,1702,544,1679,565,1680,565,1702,542,1703,538,1712,538,582,538,583,537,1707,537,583,542,583,538,582,538,581,544,587,538,1702,543,1702,542,583,539,1706,538,1706,538,1703,537,1707,537,1708,539,40408,9006,2256,560
+
+9012,4539,543,583,537,582,537,583,542,583,538,581,539,586,539,581,538,588,537,1707,537,1708,538,1706,538,1702,543,1702,542,1702,538,1706,539,1712,538,583,537,582,537,1708,538,582,543,582,538,581,539,581,539,588,542,1702,537,1708,538,581,544,1701,539,1707,537,1707,537,1708,539,1706,538,40399,9006,2279,542
+
+
+
+#2
+(spresense)
+9002,4517,549,580,549,580,549,550,579,550,549,580,549,580,549,580,549,580,519,1709,549,1709,519,1739,519,1709,550,1708,519,1709,550,1708,519,1740,519,579,550,579,519,611,518,1709,550,579,519,611,518,611,519,579,550,1709,549,1709,519,1709,549,580,519,1708,550,1709,519,1708,550,1709,549,40405,9002,2289,519
+
+(due)
+9007,4540,537,560,565,578,543,582,537,583,538,587,538,581,538,582,543,561,565,1701,543,1702,538,1707,538,1708,537,1708,537,1708,538,1706,538,1706,539,583,537,588,537,582,537,1708,539,581,538,587,538,581,539,588,537,1708,537,1707,539,1700,544,581,539,1703,542,1702,543,1702,538,1711,539,40403,9006,2279,542
+
+9008,4513,565,582,538,581,544,581,539,582,537,583,542,583,537,582,543,583,538,1684,560,1706,539,1680,565,1679,567,1679,566,1678,566,1680,565,1707,537,583,539,587,538,581,539,1707,537,583,537,588,537,582,537,588,538,1707,538,1708,537,1708,537,582,537,1708,538,1707,538,1707,537,1708,537,40406,9008,2255,561
+
+
+#3
+(spresense)
+9002,4517,579,550,549,580,549,580,549,550,579,550,549,580,549,580,549,580,549,1679,549,1709,549,1679,580,1678,549,1679,580,1678,549,1679,580,1678,549,611,519,1708,550,580,549,1678,550,579,550,580,549,580,519,610,519,1709,549,580,549,1709,519,580,549,1709,549,1709,519,1709,549,1709,519,40435,9002,2259,549
+
+(due)
+9011,4539,538,581,544,581,539,582,537,584,542,583,537,582,543,582,538,587,538,1707,538,1707,537,1703,543,1702,543,1702,543,1702,543,1702,543,1707,538,582,538,1707,538,588,537,1707,537,583,537,583,538,587,538,587,538,1708,537,583,537,1707,537,583,544,1700,544,1703,537,1708,537,1707,538,40436,8985,2277,544
+
+9012,4517,560,584,537,582,543,582,537,583,538,587,538,581,538,582,543,587,538,1703,537,1708,538,1706,539,1706,538,1707,537,1709,537,1707,538,1707,538,583,542,1702,543,583,537,1707,538,582,538,581,539,588,537,588,537,1708,537,583,538,1706,538,582,538,1708,537,1707,537,1708,538,1707,538,40409,9007,2256,565
+
+
+出所不明5入力
+
+#1
+9338,4578,549,610,550,610,549,611,549,610,550,579,580,611,549,580,579,1709,550,1709,549,1739,550,1709,549,1740,549,1709,549,1709,580,1709,549,610,550,1739,550,610,549,1709,549,611,549,610,550,610,549,611,549,610,550,610,549,1709,580,610,550,1709,549,1709,580,1709,549,1709,549,1740,549,40130,9430,2288,550
+
+
+------------------------------------------
+ラズパイ等電源外付け
+
+リモートからpoweronを押下すると電源がonになる
+リモートからpoweronを長押しすると電源がoffになる
+ラズパイからpoweroffを押下すると電源がoffになる
+リモートからの制御は3.5ミニジャックで
+
+
+------------------------------------------
+flip動作
+
+
+ネット送信した行が画面下端に達すると行を画面上端に戻し、waiting_flipを1にする。
+
+DMA転送フレームがcur_video_frameと一致しアドレスが32行以降のとき、
+  cur_disp_frame = cur_video_frame;
+  (次のパススルー表示フレームを現DMA転送フレームの値にセット)
+  if (waiting_flip) { cur_read_frame = cur_video_frame; waiting_flip = 0; }
+  (ネット送信が画面上端待機中ならネット送信フレームを現DMA転送フレームの値
+  にセットしwaiting_flipを0にする)
+  cur_video_frameを、cur_read_frameともcur_disp_frameとも異なる値にセット。
+  cur_video_frameとcur_disp_frameをレジスタに反映させる。
+
+
+cur_video_frame: 次のdma転送フレームとして指定しているフレーム
+dma frame: DMA転送中フレーム
+cur_read_frame: ネット送信フレーム
+
+問題: dma転送からネット送信までのバッファリング猶予が短く、フレームが飛ばされる
+
+変更後の方針
+1. cur_video_frameは4フレームのバッファを順に回す
+2. cur_disp_frameはcur_video_frameの一つ後ろを指定
+3. cur_read_frameはネット送信に合わせて進めるがdma転送位置を追い越さないように
+4. waiting_flip廃止
+
+
 

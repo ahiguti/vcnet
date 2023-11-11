@@ -1,1 +1,7 @@
 *.xsa
+*.bda
+ip/
+ui/
+*.runs/
+*.hw/
+*.ip_user_files/

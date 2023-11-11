@@ -24,6 +24,8 @@
 
 #if defined(_USING_DYNAMIC_HID)
 
+#define MOUSE_REPORT_ID 1
+
 static const uint8_t _hidReportDescriptor[] PROGMEM = {
   
   //  Mouse
@@ -32,7 +34,7 @@ static const uint8_t _hidReportDescriptor[] PROGMEM = {
     0xa1, 0x01,                    // COLLECTION (Application)
     0x09, 0x01,                    //   USAGE (Pointer)
     0xa1, 0x00,                    //   COLLECTION (Physical)
-    0x85, 0x01,                    //     REPORT_ID (1)
+    0x85, MOUSE_REPORT_ID,                    //     REPORT_ID (1)
     0x05, 0x09,                    //     USAGE_PAGE (Button)
     0x19, 0x01,                    //     USAGE_MINIMUM (Button 1)
     0x29, 0x03,                    //     USAGE_MAXIMUM (Button 3)
@@ -101,7 +103,7 @@ void MouseMod_::move(signed char x, signed char y, signed char wheel,
 	m[2] = y;
 	m[3] = wheel;
 	m[4] = wheel_h;
-	DynamicHID().SendReport(1,m,5);
+	DynamicHID().SendReport(MOUSE_REPORT_ID, m, 5);
 }
 
 void MouseMod_::report(uint8_t b, signed char x, signed char y,
@@ -114,7 +116,7 @@ void MouseMod_::report(uint8_t b, signed char x, signed char y,
 	m[2] = y;
 	m[3] = wheel;
 	m[4] = wheel_h;
-	DynamicHID().SendReport(1,m,5);
+	DynamicHID().SendReport(MOUSE_REPORT_ID, m, 5);
 }
 
 void MouseMod_::buttons(uint8_t b)

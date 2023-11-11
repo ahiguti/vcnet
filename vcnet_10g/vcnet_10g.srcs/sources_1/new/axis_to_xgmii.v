@@ -1,6 +1,7 @@
 `timescale 1ns / 1ps
 
 // axi-streamからxgmiiへ変換する。パケット間ギャップを確保するためにTREADYで制御する。
+// 出力は1回レジスタする。
 
 module axis_to_xgmii(
 input CLK,
@@ -15,10 +16,12 @@ output [3:0] O_LEN
 );
 
 reg [1:0] gap;
+reg [63:0] o_data;
+reg [3:0] o_len;
 
 assign I_TREADY = (gap == 0);
-assign O_DATA = I_TDATA;
-assign O_LEN = (I_TVALID != 0 && gap == 0) ? I_TUSER : 0;
+assign O_DATA = o_data;
+assign O_LEN = o_len;
 
 always @(posedge CLK) begin
     if (!RESETN) begin
@@ -31,6 +34,11 @@ always @(posedge CLK) begin
             gap <= 2;
         end
     end
+end
+
+always @(posedge CLK) begin
+    o_data <= I_TDATA;
+    o_len <= (I_TVALID && I_TREADY) ? I_TUSER : 0;
 end
 
 endmodule

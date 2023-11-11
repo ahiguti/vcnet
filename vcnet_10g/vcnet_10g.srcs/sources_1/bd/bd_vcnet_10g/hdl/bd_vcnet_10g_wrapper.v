@@ -1,8 +1,8 @@
 //Copyright 1986-2018 Xilinx, Inc. All Rights Reserved.
 //--------------------------------------------------------------------------------
 //Tool Version: Vivado v.2018.2 (lin64) Build 2258646 Thu Jun 14 20:02:38 MDT 2018
-//Date        : Sat Dec 31 06:51:55 2022
-//Host        : habuild running 64-bit Ubuntu 22.04.1 LTS
+//Date        : Sun Nov 12 01:58:29 2023
+//Host        : habuild running 64-bit Ubuntu 22.04.3 LTS
 //Command     : generate_target bd_vcnet_10g_wrapper.bd
 //Design      : bd_vcnet_10g_wrapper
 //Purpose     : IP block netlist
@@ -24,6 +24,13 @@ module bd_vcnet_10g_wrapper
     HDMI1_SCLK,
     HDMI1_SDA,
     HDMI1_VS,
+    HDMI_CLK,
+    HDMI_D,
+    HDMI_DE,
+    HDMI_HSYNC,
+    HDMI_SCL,
+    HDMI_SDA,
+    HDMI_VSYNC,
     IR_OUT,
     LED,
     MGTCLK0_clk_n,
@@ -51,6 +58,13 @@ module bd_vcnet_10g_wrapper
   input HDMI1_SCLK;
   inout HDMI1_SDA;
   input HDMI1_VS;
+  output HDMI_CLK;
+  output [15:0]HDMI_D;
+  output HDMI_DE;
+  output HDMI_HSYNC;
+  inout HDMI_SCL;
+  inout HDMI_SDA;
+  output HDMI_VSYNC;
   output IR_OUT;
   output [2:0]LED;
   input MGTCLK0_clk_n;
@@ -79,6 +93,13 @@ module bd_vcnet_10g_wrapper
   wire HDMI1_SCLK;
   wire HDMI1_SDA;
   wire HDMI1_VS;
+  wire HDMI_CLK;
+  wire [15:0]HDMI_D;
+  wire HDMI_DE;
+  wire HDMI_HSYNC;
+  wire HDMI_SCL;
+  wire HDMI_SDA;
+  wire HDMI_VSYNC;
   wire IR_OUT;
   wire [2:0]LED;
   wire MGTCLK0_clk_n;
@@ -108,6 +129,13 @@ module bd_vcnet_10g_wrapper
         .HDMI1_SCLK(HDMI1_SCLK),
         .HDMI1_SDA(HDMI1_SDA),
         .HDMI1_VS(HDMI1_VS),
+        .HDMI_CLK(HDMI_CLK),
+        .HDMI_D(HDMI_D),
+        .HDMI_DE(HDMI_DE),
+        .HDMI_HSYNC(HDMI_HSYNC),
+        .HDMI_SCL(HDMI_SCL),
+        .HDMI_SDA(HDMI_SDA),
+        .HDMI_VSYNC(HDMI_VSYNC),
         .IR_OUT(IR_OUT),
         .LED(LED),
         .MGTCLK0_clk_n(MGTCLK0_clk_n),

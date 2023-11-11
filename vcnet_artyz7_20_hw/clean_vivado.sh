@@ -2,8 +2,8 @@
 
 cd `dirname $0`
 
-rm -rf *.cache *.hw *.impl *.ip_user_files *.runs *.sim *.jou *.log .Xil
-rm -rf *.mcs *.prm
+rm -rf *.cache *.hw *.impl *.ip_user_files *.runs *.gen *.sim *.jou *.log .Xil
+rm -rf *.mcs *.prm *.xsa
 
 rm -rf */*/bd/*/ip
 rm -rf */*/bd/*/ipshared

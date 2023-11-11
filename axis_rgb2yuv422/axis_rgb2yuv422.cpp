@@ -41,28 +41,115 @@ rgb_to_yuv422(u24 rgb0, u24 rgb1, u16& y0u, u16& y1v)
 	y1v = clamp_u8(y1).concat(clamp_u8(v));
 }
 
+#if 1
+
+struct pixbuf {
+	ap_uint<96> pix;
+	u8 npixbytes;
+	u16 nzerobytes;
+	u1 user;
+};
+
+void out_yuv422(hls::stream<pkt_rgb_type>& s_out, pixbuf& pb, u1 user, u16 v)
+{
+#pragma HLS INLINE
+	pb.user |= user;
+	if (pb.npixbytes == 0) {
+		pb.pix.range(15, 0) = v;
+		pb.npixbytes = 2;
+	} else if (pb.npixbytes == 1) {
+		pb.pix.range(23, 8) = v;
+		pb.npixbytes = 3;
+	} else if (pb.npixbytes == 2) {
+		pb.pix.range(31, 16) = v;
+		pb.npixbytes = 4;
+	}
+	if (pb.npixbytes >= 3) {
+		pkt_rgb_type opkt { };
+		opkt.user = pb.user;
+		opkt.data = pb.pix.range(23, 0);
+		s_out.write(opkt);
+		pb.user = 0;
+		pb.pix >>= 24;
+		pb.npixbytes -= 3;
+	}
+}
+
+void out_yuv422_rem(hls::stream<pkt_rgb_type>& s_out, pixbuf& pb)
+{
+#pragma HLS INLINE
+	pkt_rgb_type opkt { };
+	opkt.data = pb.pix.range(23, 0);
+	opkt.last = 1;
+	s_out.write(opkt);
+#if 0
+	pb.nzerobytes += pb.npixbytes;
+	pb.npixbytes = 0;
+	if (pb.nzerobytes != 0) {
+		if (pb.nzerobytes > 2) {
+			pb.nzerobytes -= 3;
+		} else {
+			pb.nzerobytes = 0;
+		}
+		pkt_rgb_type opkt { };
+		opkt.data = pb.pix.range(23, 0);
+		if (pb.nzerobytes == 0) {
+			opkt.last = 1;
+		}
+		s_out.write(opkt);
+		pb.pix.range(23, 0) = 0;
+	}
+#endif
+}
+
+void axis_rgb2yuv422(hls::stream<pkt_rgb_type>& s_in, hls::stream<pkt_rgb_type>& s_out)
+{
+#pragma HLS INTERFACE mode=ap_ctrl_none port=return
+#pragma HLS INTERFACE mode=axis port=s_in
+#pragma HLS INTERFACE mode=axis port=s_out
+	while (true) {
+		pixbuf pb { };
+		loop_yuv422: while (true) {
+#pragma HLS PIPELINE II=2
+			pkt_rgb_type pkt0 { };
+			pkt_rgb_type pkt1 { };
+			s_in.read(pkt0);
+			++pb.nzerobytes;
+			if (!pkt0.last) {
+				s_in.read(pkt1);
+			}
+			++pb.nzerobytes;
+			bool in_last = pkt0.last | pkt1.last;
+			u16 o0, o1;
+			rgb_to_yuv422(pkt0.data, pkt1.data, o0, o1);
+			out_yuv422(s_out, pb, pkt0.user, o0);
+			out_yuv422(s_out, pb, pkt1.user, o1);
+			if (in_last) {
+				break;
+			}
+		}
+		out_yuv422_rem(s_out, pb);
+#if 0
+		loop_yuv422_rem: while (true) {
+#pragma HLS PIPELINE II=1
+			out_yuv422_rem(s_out, pb);
+			if (pb.nzerobytes == 0) {
+				break;
+			}
+		}
+#endif
+	}
+}
+
+#endif
+
+#if 0
+
 void axis_rgb2yuv422(hls::stream<pkt_rgb_type>& s_in, hls::stream<pkt_yuv422_type>& s_out)
 {
 #pragma HLS INTERFACE mode=ap_ctrl_none port=return
 #pragma HLS INTERFACE mode=axis port=s_in
 #pragma HLS INTERFACE mode=axis port=s_out
-#if 0
-	while (true) {
-		while (true) {
-			pkt_rgb_type pkt { };
-			s_in.read(pkt);
-			pkt_yuv422_type opkt { };
-			opkt.data = pkt.data;
-			opkt.last = pkt.last;
-			opkt.user = pkt.user;
-			s_out.write(opkt);
-			if (pkt.last) {
-				break;
-			}
-		}
-	}
-#endif
-#if 1
 	process_pkt: while (true) {
 #pragma HLS PIPELINE II=2
 		pkt_rgb_type pkt0 { };
@@ -83,55 +170,6 @@ void axis_rgb2yuv422(hls::stream<pkt_rgb_type>& s_in, hls::stream<pkt_yuv422_typ
 			s_out.write(opkt1);
 		}
 	}
-#endif
-#if 0
-	while (true) {
-		pkt_rgb_type pkt { };
-		pkt_yuv422_type opkt { };
-		bool odd = false;
-		u24 rgb0 { };
-		u24 rgb1 { };
-		u1 user0 { };
-		u1 user1 { };
-		u16 y0u { };
-		u16 y1v { };
-		s_in.read(pkt);
-		rgb0 = pkt.data;
-		user0 = pkt.user;
-		odd = true;
-		process_pkt: while (true) {
-#pragma HLS PIPELINE II=1
-			s_in.read(pkt);
-			if (pkt.last) {
-				break;
-			}
-			if (!odd) {
-				rgb0 = pkt.data;
-				user0 = pkt.user;
-				opkt.data = y1v;
-				opkt.last = false;
-				opkt.user = user1;
-			} else {
-				rgb1 = pkt.data;
-				user1 = pkt.user;
-				rgb_to_yuv422(rgb0, rgb1, y0u, y1v);
-				opkt.data = y0u;
-				opkt.last = false;
-				opkt.user = user0;
-			}
-			s_out.write(opkt);
-			odd = !odd;
-		}
-		if (!odd) {
-			opkt.data = y1v;
-			opkt.user = user1;
-		} else {
-			opkt.data = y0u;
-			opkt.user = user0;
-		}
-		opkt.last = true;
-		s_out.write(opkt);
-	}
-#endif
 }
 
+#endif

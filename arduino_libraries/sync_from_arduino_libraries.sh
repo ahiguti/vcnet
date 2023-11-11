@@ -1,4 +1,9 @@
 #!/bin/bash
 
 cd `dirname $0`
-rsync -av ~/user/Documents/Arduino/libraries/usb_mod/ ./usb_mod/
+
+libs='usb_mod vcnet_usb vcnet_ir bitbang_sender bitbang_receiver vcnet_server'
+
+for i in $libs; do
+  rsync -av ~/user/Documents/Arduino/libraries/$i/ ./$i/
+done

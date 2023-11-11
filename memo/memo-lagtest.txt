@@ -1,0 +1,76 @@
+----------------------------
+TODO: dx12
+
+----------------------------
+
+lagtestはすべてvsync=0で動かす。(vcnet_client lagtest_mode=2 vsync=0)
+
+PC(w11)で直接動かした場合。165Hzディスプレイ。
+PC1 display1 165Hz
+delay 20822 amin=59 amax=200 dmin=15423 dmax=38766 davg=19488 dcnt=799
+delay 16394 amin=199 amax=466 dmin=14636 dmax=21425 davg=17900 dcnt=800
+
+vcnet_10gを通した場合。vcnet_clientのvsync(165Hz)有効。
+PC1 -> vcnet_10g -> PC2(w10) lagtest -> vcnet_10g(vsync) -> PC1 display1 165Hz
+delay 66837 amin=199 amax=487 dmin=51042 dmax=82714 davg=68103 dcnt=1000
+
+vcnet_10gを通した場合。vcnet_clientのvsync無効。
+PC1 -> vcnet_10g -> PC2(w10) lagtest -> vcnet_10g(novsync) -> PC1 display1 165Hz
+delay 54017 amin=199 amax=476 dmin=47952 dmax=75512 davg=62783 dcnt=1000
+
+165Hzのディスプレイを60Hzに設定変更した場合
+PC1 display1 60Hz
+delay 44140 amin=199 amax=482 dmin=34495 dmax=53216 davg=44009 dcnt=1000
+
+別の60Hzディスプレイ
+PC1 display2 60Hz
+delay 54201 amin=199 amax=607 dmin=42634 dmax=78274 davg=60426 dcnt=1000
+
+vcnet_1gを通した場合。
+PC1 -> vcnet_1g -> PC3 lagtest -> vcnet_1g(vsync) -> PC1 display1 165Hz
+delay 61367 amin=27 amax=200 dmin=54163 dmax=80999 davg=65453 dcnt=499
+delay 65513 amin=199 amax=533 dmin=64658 dmax=101518 davg=76025 dcnt=500
+
+vcnet_10g リモートがubuntu intel gpu。ローカルディスプレイは60Hz。
+PC1 -> vcnet_10g -> PC4(ub) lagtest -> vcnet_10g(vsync) -> PC1 display1 60Hz
+delay 129542 amin=33 amax=200 dmin=112627 dmax=136073 davg=125441 dcnt=99
+delay 124022 amin=199 amax=352 dmin=110257 dmax=128513 davg=118972 dcnt=100
+
+vcnet_10gを通した場合。リモートがubuntu。ローカルディスプレイは165Hz。
+PC1 -> vcnet_10g -> PC4(ub) lagtest -> vcnet_10g(vsync) -> PC1 display1 165Hz
+delay 81473 amin=40 amax=200 dmin=76140 dmax=94669 davg=86266 dcnt=99
+delay 75103 amin=199 amax=356 dmin=69243 dmax=152544 davg=82512 dcnt=100
+
+vcnet_1g USB3 UVC 120Hz出力60Hzキャプチャ(YUY2) ローカルディスプレイ165Hz
+delay 56656 amin=75 amax=201 dmin=53137 dmax=82955 davg=67096 dcnt=199
+delay 53481 amin=199 amax=787 dmin=53481 dmax=82831 davg=66300 dcnt=200
+
+vcnet_1g USB3 UVC 120Hz出力120Hzキャプチャ(NV12) ローカルディスプレイ165Hz
+delay 58999 amin=80 amax=200 dmin=48635 dmax=68244 davg=58750 dcnt=199
+delay 59588 amin=199 amax=784 dmin=46863 dmax=71444 davg=58378 dcnt=200
+
+vcnet_mcu USB3 UVC 120Hz出力120Hzキャプチャ(NV12) ローカルディスプレイ165Hz
+delay 54294 amin=86 amax=200 dmin=46697 dmax=59757 davg=55666 dcnt=99
+delay 51435 amin=199 amax=782 dmin=46877 dmax=140947 davg=55665 dcnt=100
+
+-------------------------
+参考: PC(w11)で直接動かした場合。165Hzディスプレイ。DirectX12、vsync。
+delay 28907 amin=35 amax=200 dmin=20974 dmax=31388 davg=26141 dcnt=227
+delay 24210 amin=199 amax=686 dmin=20552 dmax=31336 davg=25884 dcnt=228
+openglでもvsync有効ならおなじくらい。
+
+-------------------------
+参考: UVC映像キャプチャデバイス USB3 YUY2 60fps OBSプレビュー windows11
+delay 63860 amin=75 amax=200 dmin=57306 dmax=109918 davg=78834 dcnt=999
+delay 70828 amin=199 amax=791 dmin=57534 dmax=100358 davg=79541 dcnt=1000
+
+-------------------------
+参考: UVC映像キャプチャデバイス USB3 60Hz出力 MediaFoundation windows11
+delay 75688 amin=97 amax=200 dmin=65400 dmax=97681 davg=78623 dcnt=199
+delay 66068 amin=199 amax=761 dmin=64459 dmax=101652 davg=78544 dcnt=200
+
+-------------------------
+参考: UVC映像キャプチャデバイス USB3 120Hz出力 MediaFoundation windows11
+delay 49011 amin=100 amax=201 dmin=44001 dmax=59862 davg=51859 dcnt=223
+delay 52227 amin=199 amax=758 dmin=42684 dmax=60078 davg=53782 dcnt=224
+
