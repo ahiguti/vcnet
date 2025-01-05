@@ -9,8 +9,10 @@ mkdir -p ./x64/Release
 mkdir -p ./x64/Debug
 cp -f "$drive/build/SDL2/VisualC/x64/Release/SDL2.dll" ./x64/Release/
 cp -f "$drive/build/SDL2/VisualC/x64/Debug/SDL2.dll" ./x64/Debug/
-cp -f "$drive/build/glew/bin/Release/x64/"*.dll ./x64/Release/
-cp -f "$drive/build/glew/bin/Debug/x64/"*.dll ./x64/Debug/
+cp -f "$drive/build/glew/build/vc15/x64/Release/"*.dll ./x64/Release/
+cp -f "$drive/build/glew/build/vc15/x64/Debug/"*.dll ./x64/Debug/
+#cp -f "$drive/build/glew/bin/Release/x64/"*.dll ./x64/Release/
+#cp -f "$drive/build/glew/bin/Debug/x64/"*.dll ./x64/Debug/
 
 exe="./x64/Release/vcnet_client.exe"
 src="./vcnet_client.cpp"

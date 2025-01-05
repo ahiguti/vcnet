@@ -24,11 +24,7 @@
   #pragma comment(lib, "ws2_32.lib")
   #pragma comment(lib, "imm32.lib")
   #pragma comment(lib, "opengl32.lib")
-  #ifdef _DEBUG
-    #pragma comment(lib, "glew32d.lib")
-  #else
-    #pragma comment(lib, "glew32.lib")
-  #endif
+  #pragma comment(lib, "glew_shared.lib")
   #pragma comment(lib, "SDL2.lib")
 #else
   // unix
@@ -2281,29 +2277,113 @@ public:
 
 //////////////////////////////////////////////////////////////
 
+struct vcnet_keyconv {
+  std::map<uint32_t, uint32_t> keymap;
+  std::map<uint8_t, uint8_t> keymodmap;
+  void convert_scancode(uint8_t c, uint8_t m, uint8_t& c_r,
+    uint8_t& m_r, bool& downup_r);
+};
+
+void
+vcnet_keyconv::convert_scancode(uint8_t c, uint8_t m0,
+  uint8_t& c_r, uint8_t& m_r, bool& downup_r)
+{
+  // キーコードを"keymodmap"と"keymap"設定にしたがって変換する。
+  c_r = 0;
+  m_r = 0;
+  downup_r = false;
+  uint8_t m = m0;
+  {
+    // modifierがkeymodmapに登録されていれば変換する。この変換は
+    // keymapの変換より先に適用される。
+    m = 0;
+    for (uint32_t i = 0; i < 8; ++i) {
+      uint32_t v = (1 << i);
+      if ((v & m0) != 0) {
+        auto const iter = keymodmap.find(i);
+        if (iter != keymodmap.end()) {
+          v = 1 << iter->second;
+        }
+        m |= v;
+      }
+    }
+  }
+  {
+    // usage idとmodifierの組み合わせがkeymapに登録されていれば
+    // そのコードのdown/upを送る
+    uint32_t k = (uint32_t)c | ((uint32_t) m) << 8;
+    auto const iter = keymap.find(k);
+    if (iter != keymap.end()) {
+      uint32_t v = iter->second;
+      // [7:0] がコード、[15:8] がmodifier、[16:16] がdownup
+      c_r = v & 0xff;
+      m_r = (v >> 8) & 0xff;
+      downup_r = (v & 0x10000) != 0;
+      return;
+    }
+    if ((m & 0xf0) != 0) {
+      // 右modifierを左modifierに置き換えてkeymapを引く
+      m = (m >> 4) | (m & 0x0f);
+      k = (uint32_t)c | ((uint32_t) m) << 8;
+      auto const iter = keymap.find(k);
+      if (iter != keymap.end()) {
+        uint32_t v = iter->second;
+        c_r = v & 0xff;
+        m_r = (v >> 8) & 0xff;
+        downup_r = (v & 0x10000) != 0;
+        return;
+      }
+    }
+  }
+  // keymapに登録されていないときここにくる。最低限の変換。zenkaku hankaku
+  // はkeyupイベントが送られてこないのでdownupをtrueにする。
+  c_r = c;
+  m_r = m;
+  downup_r = false;
+  switch (c) {
+  case 0x64: // backslash, underline, hiragana ro
+    c_r = 0x87;
+    break;
+  case 0x35: // zenkaku hankaku
+  case 0x91: // mac eisu
+    c_r = 0x35;
+    downup_r = true;
+    break;
+  default:
+    break;
+  }
+}
+
+//////////////////////////////////////////////////////////////
+
 struct vcnet_hid {
 private:
   bool has_event = false;
+  bool has_event_keydown = false;
   bool mouse_moved = false;
   uint8_t mbutton = 0;
   uint8_t mouse_seq = 0;
   std::array<int, 4> mouse_delta = { };
   std::array<uint16_t, 2> absmouse = { };
   uint8_t absmbutton = 0;
-  std::set<uint8_t> keys;
+  std::list<uint8_t> keys;
   uint8_t key_mod = 0;
-  bool is_complex_conv = false;
+  std::list<uint8_t> keys_noconv;
+  uint8_t key_mod_noconv = 0;
   uint16_t gcbutton = 0;
   std::array<int16_t, 6> gcaxes = { };
+  std::array<uint8_t, 6> keyarr_prev = { };
   void push(std::vector<uint8_t>& buf_a, uint8_t word_offset, uint8_t v0,
     uint8_t v1, uint8_t v2, uint8_t v3);
+public:
+  vcnet_keyconv keyconv;
 public:
   void mouse_button(uint8_t v, bool press);
   void mouse_move(int x, int y, int wx, int wy);
   void absmouse_button(uint8_t v, bool press);
   void absmouse_move(uint16_t x, uint16_t y);
-  void key_down(uint8_t k, uint8_t m, bool is_complex);
-  void key_up(uint8_t k, uint8_t m);
+  void key_down(uint8_t k, uint8_t m, bool noconv = false);
+  void key_up(uint8_t k, uint8_t m, bool noconv = false);
   void key_up_all();
   void gc_buttons(uint16_t v);
   void gc_axis(uint8_t axis, int16_t v);
@@ -2362,31 +2442,38 @@ vcnet_hid::absmouse_move(uint16_t x, uint16_t y)
 }
 
 void
-vcnet_hid::key_down(uint8_t k, uint8_t m, bool is_complex)
+vcnet_hid::key_down(uint8_t k, uint8_t m, bool noconv)
 {
-  keys.insert(k);
-  key_mod = m;
-  is_complex_conv = is_complex;
-    // これがtrueのとき、このキーはmodifierを含んだ変換の結果なので、今後
-    // key_upの際は全てのkeyをupする。
+  if (noconv) {
+    keys_noconv.push_back(k);
+    key_mod_noconv = m;
+  } else {
+    keys.push_back(k);
+    key_mod = m;
+  }
   has_event = true;
-  log(10, "key_down %u %u %u\n", (unsigned)k, (unsigned)m,
-    (unsigned)is_complex);
+  has_event_keydown = true;
+  log(10, "key_down %x %x\n", (unsigned)k, (unsigned)m);
 }
 
 void
-vcnet_hid::key_up(uint8_t k, uint8_t m)
+vcnet_hid::key_up(uint8_t k, uint8_t m, bool noconv)
 {
-  if (is_complex_conv) {
-    keys.clear();
+  if (noconv) {
+    keys_noconv.remove(k);
+    key_mod_noconv = m;
+    if (keys_noconv.empty()) {
+      key_mod_noconv = 0;
+    }
   } else {
-    keys.erase(k);
-  }
-  if (keys.empty()) {
-    key_mod = 0;
+    keys.remove(k);
+    key_mod = m;
+    if (keys.empty()) {
+      key_mod = 0;
+    }
   }
   has_event = true;
-  log(10, "key_up %u %u\n", (unsigned)k, (unsigned)m);
+  log(10, "key_up %x %x\n", (unsigned)k, (unsigned)m);
 }
 
 void
@@ -2394,19 +2481,24 @@ vcnet_hid::key_up_all()
 {
   keys.clear();
   key_mod = 0;
+  keys_noconv.clear();
+  key_mod_noconv = 0;
   has_event = true;
+  log(10, "key_up_all\n");
 }
 
 void
 vcnet_hid::up_all()
 {
-  log(10, "up_all\n");
   keys.clear();
   key_mod = 0;
+  keys_noconv.clear();
+  key_mod_noconv = 0;
   mbutton = 0;
   absmbutton = 0;
   gcbutton = 0;
   has_event = true;
+  log(10, "up_all\n");
 }
 
 void
@@ -2458,21 +2550,53 @@ vcnet_hid::get_spi_buffer(int spi_index, std::vector<uint8_t>& buf_a,
     ++mouse_seq;
     mouse_moved = false;
   }
+  std::array<uint8_t, 6> keyarr = { };
+  uint8_t keymod_cur = 0;
+    // modifierはkeysとkeys_noconvの最後のエントリのもの(最後に押したキーが
+    // 押下された際のmodifier状態)だけが有効になる。
+  size_t i = 0;
+  for (auto j = keys.begin(); j != keys.end(); ++j) {
+    if (i < keyarr.size()) {
+      uint8_t k = *j;
+      uint8_t conv_k = 0;
+      uint8_t conv_m = 0;
+      bool downup = false;
+      keyconv.convert_scancode(k, key_mod, conv_k, conv_m, downup);
+      log(17, "conv code %u(%x) mod %x -> code %u(%x) mod %x\n",
+        (unsigned)k,
+        (unsigned)k,
+        (unsigned)key_mod,
+        (unsigned)conv_k,
+        (unsigned)conv_k,
+        (unsigned)conv_m);
+      keymod_cur = conv_m;
+      if (!has_event_keydown) {
+        // keyupイベントによって何らかのキーが新たにdownされるようなことが
+        // ないようにする。
+        if (std::find(keyarr_prev.begin(), keyarr_prev.end(), conv_k)
+          == keyarr_prev.end()) {
+          log(17, "skip keydown %x\n", (unsigned)conv_k);
+          continue;
+        }
+      }
+      keyarr[i++] = conv_k;
+    }
+  }
+  for (auto j = keys_noconv.begin(); j != keys_noconv.end(); ++j) {
+    if (i < keyarr.size()) {
+      keyarr[i++] = *j;
+      keymod_cur = key_mod_noconv;
+    }
+  }
+  keyarr_prev = keyarr;
+  uint8_t mb = (absmbutton != 0) ? (absmbutton | 0x80) : (mbutton & 0x7f);
   push(buf_a, 0, (uint8_t)spi_index, mouse_seq,
     clamp_int8(mouse_delta[0]), clamp_int8(mouse_delta[1]));
   push(buf_a, 1, clamp_int8(mouse_delta[2]), clamp_int8(mouse_delta[3]),
     (uint8_t)absmouse[0], absmouse[0] >> 8);
-  uint8_t mb = (absmbutton != 0) ? (absmbutton | 0x80) : (mbutton & 0x7f);
-  push(buf_a, 2, (uint8_t)absmouse[1], absmouse[1] >> 8, mb, key_mod);
-  std::array<uint8_t, 6> ka = { };
-  size_t i = 0;
-  for (auto j = keys.begin(); j != keys.end(); ++j) {
-    if (i < ka.size()) {
-      ka[i++] = *j;
-    }
-  }
-  push(buf_a, 3, ka[0], ka[1], ka[2], ka[3]);
-  push(buf_a, 4, ka[4], ka[5], (uint8_t)gcbutton,
+  push(buf_a, 2, (uint8_t)absmouse[1], absmouse[1] >> 8, mb, keymod_cur);
+  push(buf_a, 3, keyarr[0], keyarr[1], keyarr[2], keyarr[3]);
+  push(buf_a, 4, keyarr[4], keyarr[5], (uint8_t)gcbutton,
     (uint8_t)(gcbutton >> 8));
   push(buf_a, 5, (uint8_t)(gcaxes[0]), (uint8_t)(gcaxes[0] >> 8),
     (uint8_t)gcaxes[1], (uint8_t)(gcaxes[1] >> 8));
@@ -2482,28 +2606,38 @@ vcnet_hid::get_spi_buffer(int spi_index, std::vector<uint8_t>& buf_a,
     (uint8_t)gcaxes[5], (uint8_t)(gcaxes[5] >> 8));
   has_event_r = has_event;
   has_event = false;
+  has_event_keydown = false;
 }
 
 std::string
 vcnet_hid::get_state_str() const
 {
-  std::string r;
-  if ((key_mod & 0x11) != 0) {
-    r += "C";
+  auto get_str = [] (std::list<uint8_t> const& ks, uint8_t m) {
+    std::string r;
+    if ((m & 0x11) != 0) {
+      r += "C";
+    }
+    if ((m & 0x22) != 0) {
+      r += "S";
+    }
+    if ((m & 0x44) != 0) {
+      r += "A";
+    }
+    if ((m & 0x88) != 0) {
+      r += "G";
+    }
+    for (auto j = ks.begin(); j != ks.end(); ++j) {
+      r += to_hexstr(*j, 2);
+    }
+    return r;
+  };
+  std::string r0 = get_str(keys, key_mod);
+  std::string r1 = get_str(keys_noconv, key_mod_noconv);
+  if (r1.empty()) {
+    return r0;
+  } else {
+    return r0 + ":" + r1;
   }
-  if ((key_mod & 0x22) != 0) {
-    r += "S";
-  }
-  if ((key_mod & 0x44) != 0) {
-    r += "A";
-  }
-  if ((key_mod & 0x88) != 0) {
-    r += "G";
-  }
-  for (auto j = keys.begin(); j != keys.end(); ++j) {
-    r += to_hexstr(*j, 2);
-  }
-  return r;
 }
 
 //////////////////////////////////////////////////////////////
@@ -2999,6 +3133,11 @@ private:
   unsigned vsync_mode = 0;
   unsigned vsync_mode_cur = 0;
   bool y_interpolation = true;
+  int screen_rotate = 0;
+  float luma_pow = 1.0;
+  float luma_mul = 1.0;
+  float luma_add = 0.0;
+  std::array<float, 2> coord_scale = { 1.0, 1.0 };
   auto_res<SDL_Window *> window;
   auto_res<SDL_GLContext> glcontext;
   auto_res<SDL_Renderer *> rend;
@@ -3020,7 +3159,9 @@ private:
   GLint loc_bilinear = -1;
   GLint loc_video_format = -1;
   GLint loc_y_interpolation = -1;
-  GLint loc_scale = -1;
+  GLint loc_coord_scale = -1;
+  GLint loc_coord_rotate = -1;
+  GLint loc_color_params = -1;
   GLint loc_cursor_pos = -1;
   GLint loc_cursor_scale = -1;
   GLint loc_lagtest_color = -1;
@@ -3071,6 +3212,16 @@ public:
   void set_real_fullscreen(bool v);
   bool get_fullscreen() const;
   void set_fullscreen(bool v);
+  unsigned get_screen_rotate() const;
+  void set_screen_rotate(unsigned v);
+  float get_luma_pow() const;
+  void set_luma_pow(float v);
+  float get_luma_mul() const;
+  void set_luma_mul(float v);
+  float get_luma_add() const;
+  void set_luma_add(float v);
+  std::array<float, 2> get_coord_scale() const;
+  void set_coord_scale(std::array<float, 2> const& v);
   void disable_ime();
   unsigned get_width() const { return window_width; }
   unsigned get_height() const { return window_height; }
@@ -3345,13 +3496,21 @@ vcnet_window::vcnet_window(vcnet_config const& conf0)
         "#version 110\n"
         #endif
         "uniform " highp "vec2 video_size;\n" // viewのピクセル数
-        "uniform " highp "vec2 scale;\n" // アスペクト比を合わせるための係数
+        "uniform " highp "vec2 coord_scale;\n" // アスペクト比を合わせる係数
+        "uniform " highp "float coord_rotate;\n" // 90度単位の回転 (0-3)
         "uniform " lowp "float video_format;\n" // 0: RGB, 1: YUV411
         "attribute " highp "vec2 coord;\n" // [-1,1]範囲のフラグメント座標
         "varying " highp "vec2 v_video_coord;\n" // ピクセル単位のvideo座標
         "varying " highp "vec2 v_video_size_inv;\n"
         "void main(void) {\n"
-        "  " highp "vec2 coord_s = coord * scale;\n"
+        "  " highp "vec2 coord_s = coord * coord_scale;\n"
+        "  if (coord_rotate == 1.0) {\n"
+        "    coord_s.xy = vec2(-coord_s.y, coord_s.x);\n"
+        "  } else if (coord_rotate == 2.0) {\n"
+        "    coord_s.xy = vec2(-coord_s.x, -coord_s.y);\n"
+        "  } else if (coord_rotate == 3.0) {\n"
+        "    coord_s.xy = vec2(coord_s.y, -coord_s.x);\n"
+        "  }\n"
         "  if (video_format == 3.0) { coord_s.y *= -1.0; }\n"
           // RGBAのときは上下反転
         "  v_video_coord = vec2(1.0 + coord_s.x, 1.0 - coord_s.y)\n"
@@ -3371,6 +3530,7 @@ vcnet_window::vcnet_window(vcnet_config const& conf0)
         "uniform " lowp "float bilinear;\n" // bilinear補間をするかどうか
         "uniform " lowp "float video_format;\n" // 0: RGB, 1: YUV411
         "uniform " lowp "float y_interpolation;\n" // 補間処理方式
+        "uniform " lowp "vec3 color_params;\n" // pow, mul, add
         "varying " highp "vec2 v_video_coord;\n" // ピクセル単位のvideo座標
         "varying " highp "vec2 v_video_size_inv;\n"
         "const " highp "float inv65536 = 1.0 / 65536.0;\n"
@@ -3515,6 +3675,10 @@ vcnet_window::vcnet_window(vcnet_config const& conf0)
         "  return vec4(clamp(vec3(r, g, b), 0.0, 1.0), 1.0);\n"
         "}\n"
         lowp "vec4 texelFetchYUY2(" highp "vec2 pc) {\n"
+        "  if (pc.x < 0.0 || pc.x >= video_size.x ||\n"
+        "    pc.y < 0.0 || pc.y >= video_size.y) {\n"
+        "    return vec4(0.0, 0.0, 0.0, 1.0);\n"
+        "  }\n"
         "  pc = clamp(pc, vec2(0.0), video_size - vec2(0.5));\n"
         "  " highp "float pcx2 = pc.x * 0.5;\n"
         "  " highp "float pcx2_i = floor(pcx2);\n"
@@ -3546,6 +3710,10 @@ vcnet_window::vcnet_window(vcnet_config const& conf0)
         "  " lowp "float b = (298.0 * y + 516.0 * u + 128.0) * inv65536;\n"
         "  return vec4(clamp(vec3(r, g, b), 0.0, 1.0), 1.0);\n"
         "}\n"
+        lowp "void applyGamma(" lowp "vec3 c0) {\n"
+        "  vec3 c = clamp((c0 + color_params.z) * color_params.y, 0.0, 1.0);\n"
+        "  gl_FragColor = vec4(pow(c, vec3(color_params.x)), 1.0);\n"
+        "}\n"
         "void main(void) {\n"
         "  if (video_format == 0.0 || video_format == 3.0) {\n"
           // RGB888またはRGBA8888。それぞれvcnet_10g、UVCキャプチャで使用。
@@ -3554,13 +3722,12 @@ vcnet_window::vcnet_window(vcnet_config const& conf0)
         "      pc.y < 0.0 || pc.y >= video_size.y) {\n"
         "      gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);\n"
         "    } else {\n"
-        "      gl_FragColor =\n"
-        "        texture2D(tex_video, pc * v_video_size_inv).bgra;\n"
+        "      applyGamma(texture2D(tex_video, pc * v_video_size_inv).bgr);\n"
         "    }\n"
         "  } else if (video_format == 1.0) {\n"
           // YUV411。vcnet_1gで使用。
         "    if (bilinear == 0.0) {\n"
-        "      gl_FragColor = texelFetchYUV411(floor(v_video_coord));\n"
+        "      applyGamma(texelFetchYUV411(floor(v_video_coord)).rgb);\n"
         "    } else {\n"
         "      " highp "vec2 vp00 = v_video_coord - 0.5;\n"
         "      " highp "vec2 vpf = floor(vp00);\n"
@@ -3575,32 +3742,32 @@ vcnet_window::vcnet_window(vcnet_config const& conf0)
         "      " lowp "vec2 a = vp00 - vpf;\n"
         "      " lowp "vec4 c0 = mix(c00, c10, a.x);\n"
         "      " lowp "vec4 c1 = mix(c01, c11, a.x);\n"
-        "      gl_FragColor = mix(c0, c1, a.y);\n"
+        "      applyGamma(mix(c0, c1, a.y).rgb);\n"
         "    }\n"
         "  } else if (video_format == 4.0) {\n"
           // NV12 12bpp。UVCキャプチャで使用。8bppで高さ1.5倍のテクスチャ。
         "    if (bilinear == 0.0) {\n"
-        "      gl_FragColor = texelFetchNV12(floor(v_video_coord));\n"
+        "      applyGamma(texelFetchNV12(floor(v_video_coord)).rgb);\n"
         "    } else {\n"
         "      " highp "vec2 vp00 = v_video_coord - 0.5;\n"
         "      " highp "vec2 vpf = floor(vp00);\n"
-        "      " lowp "vec4 c00 = texelFetchNV12(vec2(vpf.x + 0.0,\n"
-        "        vpf.y + 0.0));\n"
-        "      " lowp "vec4 c10 = texelFetchNV12(vec2(vpf.x + 1.0,\n"
-        "        vpf.y + 0.0));\n"
-        "      " lowp "vec4 c01 = texelFetchNV12(vec2(vpf.x + 0.0,\n"
-        "        vpf.y + 1.0));\n"
-        "      " lowp "vec4 c11 = texelFetchNV12(vec2(vpf.x + 1.0,\n"
-        "        vpf.y + 1.0));\n"
+        "      " lowp "vec3 c00 = texelFetchNV12(vec2(vpf.x + 0.0,\n"
+        "        vpf.y + 0.0)).rgb;\n"
+        "      " lowp "vec3 c10 = texelFetchNV12(vec2(vpf.x + 1.0,\n"
+        "        vpf.y + 0.0)).rgb;\n"
+        "      " lowp "vec3 c01 = texelFetchNV12(vec2(vpf.x + 0.0,\n"
+        "        vpf.y + 1.0)).rgb;\n"
+        "      " lowp "vec3 c11 = texelFetchNV12(vec2(vpf.x + 1.0,\n"
+        "        vpf.y + 1.0)).rgb;\n"
         "      " lowp "vec2 a = vp00 - vpf;\n"
-        "      " lowp "vec4 c0 = mix(c00, c10, a.x);\n"
-        "      " lowp "vec4 c1 = mix(c01, c11, a.x);\n"
-        "      gl_FragColor = mix(c0, c1, a.y);\n"
+        "      " lowp "vec3 c0 = mix(c00, c10, a.x);\n"
+        "      " lowp "vec3 c1 = mix(c01, c11, a.x);\n"
+        "      applyGamma(mix(c0, c1, a.y));\n"
         "    }\n"
         "  } else if (video_format == 2.0) {\n"
           // YUV422 使っていない。TODO: 右ピクセルのChromaは補間するように。
         "    if (bilinear == 0.0) {\n"
-        "      gl_FragColor = texelFetchYUV422(floor(v_video_coord));\n"
+        "      applyGamma(texelFetchYUV422(floor(v_video_coord)).rgb);\n"
         "    } else {\n"
         "      " highp "vec2 vp00 = v_video_coord - 0.5;\n"
         "      " highp "vec2 vpf = floor(vp00);\n"
@@ -3615,12 +3782,12 @@ vcnet_window::vcnet_window(vcnet_config const& conf0)
         "      " lowp "vec2 a = vp00 - vpf;\n"
         "      " lowp "vec4 c0 = mix(c00, c10, a.x);\n"
         "      " lowp "vec4 c1 = mix(c01, c11, a.x);\n"
-        "      gl_FragColor = mix(c0, c1, a.y);\n"
+        "      applyGamma(mix(c0, c1, a.y).rgb);\n"
         "    }\n"
         "  } else if (video_format == 5.0) {\n"
           // YUY2。UVCキャプチャで使用。
         "    if (bilinear == 0.0) {\n"
-        "      gl_FragColor = texelFetchYUY2(floor(v_video_coord));\n"
+        "      applyGamma(texelFetchYUY2(floor(v_video_coord)).rgb);\n"
         "    } else {\n"
         "      " highp "vec2 vp00 = v_video_coord - 0.5;\n"
         "      " highp "vec2 vpf = floor(vp00);\n"
@@ -3635,7 +3802,7 @@ vcnet_window::vcnet_window(vcnet_config const& conf0)
         "      " lowp "vec2 a = vp00 - vpf;\n"
         "      " lowp "vec4 c0 = mix(c00, c10, a.x);\n"
         "      " lowp "vec4 c1 = mix(c01, c11, a.x);\n"
-        "      gl_FragColor = mix(c0, c1, a.y);\n"
+        "      applyGamma(mix(c0, c1, a.y).rgb);\n"
         "    }\n"
         "  }\n"
         "}\n";
@@ -3714,7 +3881,9 @@ vcnet_window::vcnet_window(vcnet_config const& conf0)
       loc_video_format = glGetUniformLocation(prog_video, "video_format");
       loc_y_interpolation = glGetUniformLocation(prog_video,
         "y_interpolation");
-      loc_scale = glGetUniformLocation(prog_video, "scale");
+      loc_coord_scale = glGetUniformLocation(prog_video, "coord_scale");
+      loc_coord_rotate = glGetUniformLocation(prog_video, "coord_rotate");
+      loc_color_params = glGetUniformLocation(prog_video, "color_params");
     }
     {
       attr_cursor_coord = glGetAttribLocation(prog_cursor, "cursor_coord");
@@ -4099,146 +4268,161 @@ vcnet_window::draw_window_gl(vcnet_pixels const& pix, bool video_stable,
     // mfのプレビューウインドウがビデオを描画する
     return;
   }
+  bool skip_draw_video = false;
   if (mfplayer_video && video_use_sample_reader) {
     if (cur_video_sample.get() == nullptr) {
-        return;
+      skip_draw_video = true;
+    } else {
+      texwidth = video_attr.width;
+      texheight = video_attr.height;
+      suppress_vsync_wait = false;
+        // videoにsample_reader使用のときは一時的vsync無効化やらない
     }
-    texwidth = video_attr.width;
-    texheight = video_attr.height;
-    suppress_vsync_wait = false;
-      // videoにsample_reader使用のときは一時的vsync無効化やらない
   }
   #endif
-  // log(0, "prog=%d\n", (int)prog.get());
-  CHECK_GL(glDisable(GL_DEPTH_TEST)); // FIXME?
-  CHECK_GL(glClearColor(0.5, 0.5, 0.5, 1.0));
-  CHECK_GL(glClear(
-    GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT));
-  // ビデオフレーム描画
-  CHECK_GL(glUseProgram(prog_video));
-  float const bilinear = (texwidth == window_width &&
-    texheight == window_height)
-    ? 0.0f : 1.0f;
-  vcnet_video_format_e fmt = pix.get_format();
-  {
-    const unsigned char *p = nullptr;
-    p = pix.begin();
-    size_t psz = pix.size();
-    #ifdef _MSC_VER
-    if (video_use_sample_reader) {
-      assert(cur_video_sample.get());
-      unsigned char *data = nullptr;
-      DWORD datasz = 0;
-      (void)cur_video_sample->Lock(&data, nullptr, &datasz);
-      p = data;
-      psz = datasz;
-      log(24, "data %p sz %u\n", data, datasz);
-      fmt = capt_video_format;
-    }
-    std::unique_ptr<IMFMediaBuffer, void(*)(IMFMediaBuffer *)>
-      data_unlock(cur_video_sample.get(),
-        [](IMFMediaBuffer *p) { if (p) { p->Unlock(); } });
-      // ブロックを抜けたときにcur_video_sample->Unlock()を呼ぶ
-    #endif
-    cur_video_format = fmt;
-    CHECK_GL((void)0);
-    CHECK_GL(glActiveTexture(GL_TEXTURE0));
-    CHECK_GL(glBindTexture(GL_TEXTURE_2D, tex_video));
-    // TODO: 毎回やらなくてもいいのでは
-    if ((fmt != vcnet_video_format_e_rgb888 &&
-      fmt != vcnet_video_format_e_rgba8888)
-      || bilinear == 0.0f) {
-      CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
-        GL_NEAREST));
-      CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
-        GL_NEAREST));
-    } else {
-      CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
-        GL_LINEAR));
-      CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
-        GL_LINEAR));
-    }
-    bool skip_draw = true;
-      // キャプチャデバイスから取得したサンプルは、フォーマット変更直後は
-      // テクスチャの大きさが変更前のもののことがある。そのときはテクスチャ
-      // 転送できないので描画をスキップする。
-    switch (fmt) {
-    case vcnet_video_format_e_rgb888:
-      // RGB 24bpp
-      if (psz == texwidth * texheight * 3) {
-        skip_draw = false;
-        CHECK_GL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, texwidth,
-          texheight, 0, GL_RGB, GL_UNSIGNED_BYTE, p));
+  float bilinear = 0.0f;
+  vcnet_video_format_e fmt = { };
+  if (!skip_draw_video) {
+    // log(0, "prog=%d\n", (int)prog.get());
+    CHECK_GL(glDisable(GL_DEPTH_TEST)); // FIXME?
+    CHECK_GL(glClearColor(0.5, 0.5, 0.5, 1.0));
+    CHECK_GL(glClear(
+      GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT));
+    // ビデオフレーム描画
+    CHECK_GL(glUseProgram(prog_video));
+    bilinear = (texwidth == window_width &&
+      texheight == window_height)
+      ? 0.0f : 1.0f;
+    fmt = pix.get_format();
+    {
+      const unsigned char *p = nullptr;
+      p = pix.begin();
+      size_t psz = pix.size();
+      #ifdef _MSC_VER
+      if (video_use_sample_reader) {
+        assert(cur_video_sample.get());
+        unsigned char *data = nullptr;
+        DWORD datasz = 0;
+        (void)cur_video_sample->Lock(&data, nullptr, &datasz);
+        p = data;
+        psz = datasz;
+        log(24, "data %p sz %u\n", data, datasz);
+        fmt = capt_video_format;
       }
-      break;
-    case vcnet_video_format_e_rgba8888:
-      // RGBA 32bpp
-      if (psz == texwidth * texheight * 4) {
-        skip_draw = false;
-        CHECK_GL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, texwidth,
-          texheight, 0, GL_RGBA, GL_UNSIGNED_BYTE, p));
+      std::unique_ptr<IMFMediaBuffer, void(*)(IMFMediaBuffer *)>
+        data_unlock(cur_video_sample.get(),
+          [](IMFMediaBuffer *p) { if (p) { p->Unlock(); } });
+        // ブロックを抜けたときにcur_video_sample->Unlock()を呼ぶ
+      #endif
+      cur_video_format = fmt;
+      CHECK_GL((void)0);
+      CHECK_GL(glActiveTexture(GL_TEXTURE0));
+      CHECK_GL(glBindTexture(GL_TEXTURE_2D, tex_video));
+      // TODO: 毎回やらなくてもいいのでは
+      if ((fmt != vcnet_video_format_e_rgb888 &&
+        fmt != vcnet_video_format_e_rgba8888)
+        || bilinear == 0.0f) {
+        CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+          GL_NEAREST));
+        CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
+          GL_NEAREST));
+      } else {
+        CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+          GL_LINEAR));
+        CHECK_GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
+          GL_LINEAR));
       }
-      break;
-    case vcnet_video_format_e_yuv411:
-      // YUV411 12bpp
-      // 便宜上RGB24bpp形式テクスチャ(幅半分)として転送する
-      if (psz == texwidth * texheight * 3 / 2) {
-        skip_draw = false;
-        CHECK_GL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, texwidth / 2,
-          texheight, 0, GL_RGB, GL_UNSIGNED_BYTE, p));
+      skip_draw_video = true;
+        // キャプチャデバイスから取得したサンプルは、フォーマット変更直後は
+        // テクスチャの大きさが変更前のもののことがある。そのときはテクスチャ
+        // 転送できないので描画をスキップする。
+      switch (fmt) {
+      case vcnet_video_format_e_rgb888:
+        // RGB 24bpp
+        if (psz == texwidth * texheight * 3) {
+          skip_draw_video = false;
+          CHECK_GL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, texwidth,
+            texheight, 0, GL_RGB, GL_UNSIGNED_BYTE, p));
+        }
+        break;
+      case vcnet_video_format_e_rgba8888:
+        // RGBA 32bpp
+        if (psz == texwidth * texheight * 4) {
+          skip_draw_video = false;
+          CHECK_GL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, texwidth,
+            texheight, 0, GL_RGBA, GL_UNSIGNED_BYTE, p));
+        }
+        break;
+      case vcnet_video_format_e_yuv411:
+        // YUV411 12bpp
+        // 便宜上RGB24bpp形式テクスチャ(幅半分)として転送する
+        if (psz == texwidth * texheight * 3 / 2) {
+          skip_draw_video = false;
+          CHECK_GL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, texwidth / 2,
+            texheight, 0, GL_RGB, GL_UNSIGNED_BYTE, p));
+        }
+        break;
+      case vcnet_video_format_e_nv12:
+        // NV12 12bpp
+        // 便宜上8bpp形式テクスチャ(高さ1.5倍)として転送する
+        if (psz == texwidth * texheight * 3 / 2) {
+          skip_draw_video = false;
+          CHECK_GL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, texwidth,
+            texheight + (texheight >> 1), 0, GL_RED, GL_UNSIGNED_BYTE, p));
+        }
+        break;
+      case vcnet_video_format_e_yuv422:
+      case vcnet_video_format_e_yuy2:
+        // YUV422/YUY2 16bpp
+        if (psz == texwidth * texheight * 2) {
+          skip_draw_video = false;
+          CHECK_GL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RG, texwidth,
+            texheight, 0, GL_RG, GL_UNSIGNED_BYTE, p));
+        }
+        break;
       }
-      break;
-    case vcnet_video_format_e_nv12:
-      // NV12 12bpp
-      // 便宜上8bpp形式テクスチャ(高さ1.5倍)として転送する
-      if (psz == texwidth * texheight * 3 / 2) {
-        skip_draw = false;
-        CHECK_GL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, texwidth,
-          texheight + (texheight >> 1), 0, GL_RED, GL_UNSIGNED_BYTE, p));
-      }
-      break;
-    case vcnet_video_format_e_yuv422:
-    case vcnet_video_format_e_yuy2:
-      // YUV422/YUY2 16bpp
-      if (psz == texwidth * texheight * 2) {
-        skip_draw = false;
-        CHECK_GL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RG, texwidth,
-          texheight, 0, GL_RG, GL_UNSIGNED_BYTE, p));
-      }
-      break;
-    }
-    if (skip_draw) {
-      return;
-    }
-  }
-  float scale_x = 1.0;
-  float scale_y = 1.0;
-  if (window_height != 0 && window_width != 0 &&
-    texwidth != 0 && texheight != 0) {
-    recalc_draw_rect(texwidth, texheight);
-    unsigned hw = window_height * texwidth;
-    unsigned wh = window_width * texheight;
-    if (hw > wh) {
-      scale_y = (float)hw / (float)wh;
-    } else if (wh > hw) {
-      scale_x = (float)wh / (float)hw;
     }
   }
-  // log(0, "scale_x=%f scale_y=%f\n", scale_x, scale_y);
-  CHECK_GL(glDisable(GL_BLEND));
-  CHECK_GL(glUniform1i(loc_tex_video, 0));
-  CHECK_GL(glUniform2f(loc_video_size, (float)texwidth, (float)texheight));
-  CHECK_GL(glUniform2f(loc_scale, scale_x, scale_y));
-  CHECK_GL(glUniform1f(loc_bilinear, bilinear));
-  CHECK_GL(glUniform1f(loc_video_format, (float)fmt));
-  CHECK_GL(glUniform1f(loc_y_interpolation, (float)y_interpolation));
-  CHECK_GL(glEnableVertexAttribArray(attr_coord));
-  CHECK_GL(glBindBuffer(GL_ARRAY_BUFFER, vbo_coord));
-  CHECK_GL(glVertexAttribPointer(attr_coord, 2, GL_FLOAT, GL_FALSE, 0, 0));
-  CHECK_GL(glDrawArrays(GL_TRIANGLES, 0, 6));
-  CHECK_GL(glBindBuffer(GL_ARRAY_BUFFER, 0));
-  CHECK_GL(glDisableVertexAttribArray(attr_coord));
-  // GUI描画
+  if (!skip_draw_video) {
+    // アスペクト比を合わせるための拡大係数を計算
+    float scale_x = coord_scale[0]; // 設定ファイルで指定された拡大値
+    float scale_y = coord_scale[1]; // 設定ファイルで指定された拡大値
+    if (window_height != 0 && window_width != 0 &&
+      texwidth != 0 && texheight != 0) {
+      recalc_draw_rect(texwidth, texheight);
+      unsigned hw = 0;
+      unsigned wh = 0;
+      if (screen_rotate == 0 || screen_rotate == 2) {
+        hw = window_height * texwidth;
+        wh = window_width * texheight;
+      } else {
+        hw = window_height * texheight;
+        wh = window_width * texwidth;
+      }
+      if (hw > wh) {
+        scale_y *= (float)hw / (float)wh;
+      } else if (wh > hw) {
+        scale_x *= (float)wh / (float)hw;
+      }
+    }
+    // log(0, "scale_x=%f scale_y=%f\n", scale_x, scale_y);
+    CHECK_GL(glDisable(GL_BLEND));
+    CHECK_GL(glUniform1i(loc_tex_video, 0));
+    CHECK_GL(glUniform2f(loc_video_size, (float)texwidth, (float)texheight));
+    CHECK_GL(glUniform2f(loc_coord_scale, scale_x, scale_y));
+    CHECK_GL(glUniform1f(loc_coord_rotate, (float)screen_rotate));
+    CHECK_GL(glUniform3f(loc_color_params, luma_pow, luma_mul, luma_add));
+    CHECK_GL(glUniform1f(loc_bilinear, bilinear));
+    CHECK_GL(glUniform1f(loc_video_format, (float)fmt));
+    CHECK_GL(glUniform1f(loc_y_interpolation, (float)y_interpolation));
+    CHECK_GL(glEnableVertexAttribArray(attr_coord));
+    CHECK_GL(glBindBuffer(GL_ARRAY_BUFFER, vbo_coord));
+    CHECK_GL(glVertexAttribPointer(attr_coord, 2, GL_FLOAT, GL_FALSE, 0, 0));
+    CHECK_GL(glDrawArrays(GL_TRIANGLES, 0, 6));
+    CHECK_GL(glBindBuffer(GL_ARRAY_BUFFER, 0));
+    CHECK_GL(glDisableVertexAttribArray(attr_coord));
+  }
+  // GUI描画。たとえvideoが描画できない場合でもGUIだけは表示する。
   if (imgui_draw) {
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
   }
@@ -4389,6 +4573,66 @@ vcnet_window::set_fullscreen(bool v)
       // SDL_ShowCursor(SDL_ENABLE);
     }
   }
+}
+
+unsigned
+vcnet_window::get_screen_rotate() const
+{
+  return screen_rotate;
+}
+
+void
+vcnet_window::set_screen_rotate(unsigned v)
+{
+  screen_rotate = v;
+}
+
+float
+vcnet_window::get_luma_pow() const
+{
+  return luma_pow;
+}
+
+void
+vcnet_window::set_luma_pow(float v)
+{
+  luma_pow = v;
+}
+
+float
+vcnet_window::get_luma_mul() const
+{
+  return luma_mul;
+}
+
+void
+vcnet_window::set_luma_mul(float v)
+{
+  luma_mul = v;
+}
+
+float
+vcnet_window::get_luma_add() const
+{
+  return luma_add;
+}
+
+void
+vcnet_window::set_luma_add(float v)
+{
+  luma_add = v;
+}
+
+std::array<float, 2>
+vcnet_window::get_coord_scale() const
+{
+  return coord_scale;
+}
+
+void
+vcnet_window::set_coord_scale(std::array<float, 2> const& v)
+{
+  coord_scale = v;
 }
 
 void
@@ -4659,17 +4903,17 @@ private:
   vcnet_window wnd;
   vcnet_keystate keystate;
   bool grab_mouse = false;
+  int grab_mouse_x = 0;
+  int grab_mouse_y = 0;
   struct keycmd {
     std::chrono::system_clock::time_point time;
     uint8_t code = 0;
     uint8_t mod = 0;
     uint8_t cmd = 0;
-    bool is_complex = false;
+    bool noconv = false;
   };
   std::deque<keycmd> delayed_keycmd;
   std::array<uint16_t, 128> ch2usb { };
-  std::map<uint32_t, uint32_t> keymap;
-  std::map<uint8_t, uint8_t> keymodmap;
   joymap_type joymap;
   std::chrono::system_clock::time_point start_time { };
   std::chrono::system_clock::time_point last_draw_time { };
@@ -4755,11 +4999,11 @@ private:
   uint32_t cur_joystick = 0;
   uint32_t lagtest_mode = 0;
   bool lagtest_mode_color1 = false;
+  bool hint_allow_screensaver = true;
+  std::vector< std::array<float, 2> > coord_scale_arr;
 private:
   void send_text(std::string const& text);
   void send_mouse_button_delayed(uint8_t btn, bool press);
-  void convert_scancode(uint8_t c, uint32_t s, uint8_t m, uint8_t& c_r,
-    uint8_t& m_r, bool& downup_r, bool& is_complex_conv_r);
   uint8_t keymod_sdl2usb(uint16_t mod);
   void handle_keyboard(SDL_KeyboardEvent const& kev, bool down);
   bool send_delayed_keycmd();
@@ -4773,6 +5017,7 @@ private:
   void exec_step();
   void exec_step_lagtest_mode();
   void set_grab_mouse(bool value);
+  void set_hint_allow_screensaver(bool value);
 public:
   vcnet_control(vcnet_config const& conf0);
   bool mainloop();
@@ -4811,7 +5056,7 @@ vcnet_control::vcnet_control(vcnet_config const& conf0)
         uint32_t k = (uint32_t)strtoul(sk.c_str(), nullptr, 16);
         uint32_t v = (uint32_t)strtoul(sv.c_str(), nullptr, 16);
         log(1, "keymap[%x] = %x\n", (unsigned)k, (unsigned)v);
-        keymap[k] = v;
+        hid.keyconv.keymap[k] = v;
       }
     }
   }
@@ -4827,7 +5072,7 @@ vcnet_control::vcnet_control(vcnet_config const& conf0)
         uint8_t k = (uint32_t)strtoul(sk.c_str(), nullptr, 16);
         uint8_t v = (uint32_t)strtoul(sv.c_str(), nullptr, 16);
         log(1, "keymodmap[%x] = %x\n", (unsigned)k, (unsigned)v);
-        keymodmap[k] = v;
+        hid.keyconv.keymodmap[k] = v;
       }
     }
   }
@@ -4885,6 +5130,39 @@ vcnet_control::vcnet_control(vcnet_config const& conf0)
     wnd.set_y_interpolation(v);
     show_gui = (conf.get_uint("show_gui", 0) != 0);
     show_gui_demo = (conf.get_uint("show_gui_demo", 0) != 0);
+  }
+  {
+    std::string s = conf.get_str("coord_scale", "");
+    if (!s.empty()) {
+      std::vector<float> vs;
+      std::stringstream sstr(s);
+      std::string tok;
+      while (std::getline(sstr, tok, ',')) {
+        vs.push_back(strtof(tok.c_str(), nullptr));
+      }
+      std::array<float, 2> e;
+      for (size_t i = 0; i < vs.size() / 2; ++i) {
+        for (size_t j = 0; j < 2; ++j) {
+          e[j] = vs[i * 2 + j];
+          log(0, "coord_scale%f\n", (double)e[j]);
+        }
+        coord_scale_arr.push_back(std::move(e));
+      }
+    }
+    if (!coord_scale_arr.empty()) {
+      log(0, "setting default coord_scale_arr\n");
+      wnd.set_coord_scale(coord_scale_arr[0]);
+    }
+  }
+  {
+    unsigned v = (unsigned)conf.get_uint("screen_rotate", 0);
+    wnd.set_screen_rotate(v);
+    float vf = (float)conf.get_double("luma_pow", 1.0);
+    wnd.set_luma_pow(vf);
+    vf = (float)conf.get_double("luma_mul", 1.0);
+    wnd.set_luma_mul(vf);
+    vf = (float)conf.get_double("luma_add", 0.0);
+    wnd.set_luma_add(vf);
   }
   {
     auto const s = conn.get_title();
@@ -4965,77 +5243,6 @@ vcnet_control::send_text(std::string const& text)
     (unsigned)delayed_keycmd.size());
 }
 
-void
-vcnet_control::convert_scancode(uint8_t c, uint32_t s, uint8_t m0,
-  uint8_t& c_r, uint8_t& m_r, bool& downup_r, bool& is_complex_conv_r)
-{
-  c_r = 0;
-  m_r = 0;
-  downup_r = false;
-  is_complex_conv_r = false;
-  uint8_t m = m0;
-  {
-    // modifierがkeymodmapに登録されていれば変換する。この変換は
-    // keymapの変換より先に適用される。
-    m = 0;
-    for (uint32_t i = 0; i < 8; ++i) {
-      uint32_t v = (1 << i);
-      if ((v & m0) != 0) {
-        auto const iter = keymodmap.find(i);
-        if (iter != keymodmap.end()) {
-          v = 1 << iter->second;
-        }
-        m |= v;
-      }
-    }
-  }
-  {
-    // usage idとmodifierの組み合わせがkeymapに登録されていれば
-    // そのコードのdown/upを送る
-    uint32_t k = (uint32_t)c | ((uint32_t) m) << 8;
-    auto const iter = keymap.find(k);
-    if (iter != keymap.end()) {
-      uint32_t v = iter->second;
-      // [7:0] がコード、[15:8] がmodifier、[16:16] がdownup
-      c_r = v & 0xff;
-      m_r = (v >> 8) & 0xff;
-      is_complex_conv_r = (m_r != 0);
-      downup_r = (v & 0x10000) != 0;
-      return;
-    }
-    if ((m & 0xf0) != 0) {
-      // 右modifierを左modifierに置き換えてkeymapを引く
-      m = (m >> 4) | (m & 0x0f);
-      k = (uint32_t)c | ((uint32_t) m) << 8;
-      auto const iter = keymap.find(k);
-      if (iter != keymap.end()) {
-        uint32_t v = iter->second;
-        c_r = v & 0xff;
-        m_r = (v >> 8) & 0xff;
-        is_complex_conv_r = (m_r != 0);
-        downup_r = (v & 0x10000) != 0;
-        return;
-      }
-    }
-  }
-  // keymapに登録されていないときここにくる。最低限の変換。
-  c_r = c;
-  m_r = m;
-  downup_r = false;
-  switch (c) {
-  case 0x64: // backslash, underline, hiragana ro
-    c_r = 0x87;
-    break;
-  case 0x35: // zenkaku hankaku
-  case 0x91: // mac eisu
-    c_r = 0x35;
-    downup_r = true;
-    break;
-  default:
-    break;
-  }
-}
-
 uint8_t
 vcnet_control::keymod_sdl2usb(uint16_t mod)
 {
@@ -5067,19 +5274,14 @@ vcnet_control::handle_keyboard(SDL_KeyboardEvent const& kev, bool down)
       return;
     }
   }
-  uint8_t conv_c = 0; // 変換先キーコード(USBのusage id)
-  uint8_t conv_m = 0; // 変換先modifier
   bool downup = false;
     // これがtrueのときdownイベントに対してdownとupを発生させ、upイベント
     // は無視する。全角/半角のようにupイベントが送られてこない特殊なキー
     // をターゲットに送信するのに使う。
-  bool is_complex_conv = false;
-    // これがtrueのとき、keymapによる変換先にmodifierが含まれている。そのよう
-    // なキーがdownされた後、何らかのキーがupされたときは、全キーをupされた
-    // ように動作する。これは、複数キーのdownとupで順序がFILOになっていない
-    // ときにも確実に全キーupされるようにするため。
-  convert_scancode(kev.keysym.scancode, kev.keysym.sym, mod, conv_c, conv_m,
-    downup, is_complex_conv);
+  uint8_t conv_c = 0; // 変換先キーコード(USBのusage id)。
+  uint8_t conv_m = 0; // 変換先modifier。
+  uint8_t code = kev.keysym.scancode;
+  hid.keyconv.convert_scancode(code, mod, conv_c, conv_m, downup);
   log(17, "keyboard %s code %u(%x) sym %x mod %x -> code %u(%x) mod %x %s\n",
     down ? "down" : "up",
     (unsigned)(kev.keysym.scancode),
@@ -5093,11 +5295,13 @@ vcnet_control::handle_keyboard(SDL_KeyboardEvent const& kev, bool down)
   if (conv_c != 0) {
     if (downup) {
       if (down) {
-        hid.key_down(conv_c, conv_m, is_complex_conv);
+        /* キー押下をhidへ書き込む。convert_scancodeによる変換はhid側で行う
+         * ので、ここでは変換前のキーコードを指定する。*/
+        hid.key_down(code, mod);
         /* 一定時間後にkey_upを実行する */
         keycmd kc { };
-        kc.code = conv_c;
-        kc.mod = conv_m;
+        kc.code = code;
+        kc.mod = mod;
         kc.cmd = 0x05; // up
         auto now = std::chrono::system_clock::now();
         kc.time = now + std::chrono::milliseconds(100);
@@ -5109,21 +5313,22 @@ vcnet_control::handle_keyboard(SDL_KeyboardEvent const& kev, bool down)
       }
     } else {
       if (down) {
-        hid.key_down(conv_c, conv_m, is_complex_conv);
+        hid.key_down(code, mod);
       } else {
         #ifdef VCNET_MOBILE
         // androidでスクリーンキーボードによってEnterなどが押された場合、
         // downとupがほぼ同時にきてしまう。リモートに認識させるために
         // upの前に遅延を入れる。
         keycmd kc { };
-        kc.code = conv_c;
-        kc.mod = conv_m;
+        kc.code = code;
+        kc.mod = mod;
         kc.cmd = 0x05; // up
+        kc.noconv = false;
         auto now = std::chrono::system_clock::now();
         kc.time = now + std::chrono::milliseconds(20);
         delayed_keycmd.push_back(kc);
         #else
-        hid.key_up(conv_c, conv_m);
+        hid.key_up(code, mod);
         #endif
       }
     }
@@ -5149,9 +5354,9 @@ vcnet_control::send_delayed_keycmd()
       (int)kc.cmd);
     hid.key_up_all(); // altなどを押している状態であればクリア
     if (kc.cmd == 4) {
-      hid.key_down(kc.code, kc.mod, kc.is_complex);
+      hid.key_down(kc.code, kc.mod, true);
     } else if (kc.cmd == 5) {
-      hid.key_up(kc.code, kc.mod);
+      hid.key_up(kc.code, kc.mod, true);
     } else if (kc.cmd == 0) {
       hid.mouse_button(kc.code, true);
     } else if (kc.cmd == 1) {
@@ -5179,12 +5384,24 @@ vcnet_control::set_grab_mouse(bool value)
     if (value) {
       SDL_SetRelativeMouseMode(SDL_TRUE);
       grab_mouse = true;
+      SDL_GetMouseState(&grab_mouse_x, &grab_mouse_y);
     } else {
       SDL_SetRelativeMouseMode(SDL_FALSE);
       grab_mouse = false;
     }
   }
   grab_mouse = value;
+}
+
+void
+vcnet_control::set_hint_allow_screensaver(bool value)
+{
+  // SDL初期化のあとにセットしても効果は無いのでは？
+  if (value == hint_allow_screensaver) {
+    return;
+  }
+  hint_allow_screensaver = value;
+  SDL_SetHint(SDL_HINT_VIDEO_ALLOW_SCREENSAVER, value ? "0" : "1");
 }
 
 void
@@ -5261,6 +5478,7 @@ vcnet_control::handle_event(SDL_Event const& ev, bool& done_r)
     }
   }
   done_r = false;
+  // log(1, "event %u\n", (unsigned)ev.type); // FIXME
   switch (ev.type) {
   case SDL_QUIT:
     log(1, "SDL_QUIT\n");
@@ -5405,14 +5623,12 @@ vcnet_control::handle_event(SDL_Event const& ev, bool& done_r)
             conn.send_server_flags();
           }
           break;
-        #if 1
         case SDL_SCANCODE_P:
           // 右ALT+P: 補間方式の切り替え
           {
             wnd.set_y_interpolation(!wnd.get_y_interpolation());
           }
           break;
-        #endif
         case SDL_SCANCODE_J:
           {
             cur_joystick += 1;
@@ -5572,9 +5788,7 @@ vcnet_control::handle_event(SDL_Event const& ev, bool& done_r)
       Sint32 xrel = mmev.xrel;
       Sint32 yrel = mmev.yrel;
       hid.mouse_move(xrel, yrel, 0, 0);
-      #if 0
-      wnd.warp_mouse(0, 0);
-      #endif
+      wnd.warp_mouse(grab_mouse_x, grab_mouse_y);
     }
     break;
   case SDL_MOUSEBUTTONDOWN:
@@ -5732,6 +5946,15 @@ vcnet_control::handle_event(SDL_Event const& ev, bool& done_r)
     }
     break;
   #endif // VCNET_MOBILE
+  case SDL_AUDIODEVICEADDED:
+    {
+      if (wnd.has_video_capture() || wnd.has_audio_capture()) {
+        #ifdef _MSC_VER
+        wnd.open_capture_device();
+        #endif
+      }
+    }
+    break;
   default:
     break;
   }
@@ -5766,13 +5989,6 @@ vcnet_control::draw_gui()
   }
   if (show_gui) {
     ImGui::Separator();
-    if (ImGui::Button("Hide GUI (RightAlt + G)")) {
-      show_gui = false;
-    }
-    ImGui::SameLine();
-    ImGui::PushItemWidth(ImGui::GetFontSize() * 10);
-    ImGui::DragFloat("Alpha", &gui_alpha, 0.01f, 0.3f, 1.0f);
-    ImGui::PopItemWidth();
     ImGui::BeginTabBar("TabBar", ImGuiTabBarFlags_None);
     if (ImGui::BeginTabItem("Status")) {
       std::string s;
@@ -5961,14 +6177,21 @@ vcnet_control::draw_gui()
     }
     #endif
     if (ImGui::BeginTabItem("Control")) {
+      if (ImGui::Button("Show/Hide GUI (RightAlt + G)")) {
+        show_gui = false;
+      }
+      ImGui::SameLine();
+      ImGui::PushItemWidth(ImGui::GetFontSize() * 10);
+      ImGui::SliderFloat("GUI Transparency", &gui_alpha, 0.1f, 1.0f);
+      ImGui::PopItemWidth();
       bool v = false;
+      int vint0 = 0;
+      int vint = 0;
       ImGui::Checkbox("Show status message (RightAlt + S)", &show_info);
       v = wnd.get_fullscreen();
       if (ImGui::Checkbox("Fullscreen (RightAlt + ENTER)", &v)) {
         wnd.set_fullscreen(v);
       }
-      int vint0 = 0;
-      int vint = 0;
       if (!wnd.has_video_capture()) {
         v = (bool)conn.get_server_flags_mask(0, 0, 1);
         if (ImGui::Checkbox("Interlaced (RightAlt + I)", &v)) {
@@ -5998,6 +6221,30 @@ vcnet_control::draw_gui()
       ImGui::RadioButton("Adaptive vsync", &vint, 2);
       if (vint != vint0) {
         wnd.set_vsync_mode((unsigned)vint);
+      }
+      vint0 = wnd.get_screen_rotate();
+      vint = vint0;
+      ImGui::PushItemWidth(ImGui::GetFontSize() * 10);
+      if (ImGui::SliderInt("Rotate", &vint, 0, 3)) {
+        wnd.set_screen_rotate(vint);
+      }
+      ImGui::PopItemWidth();
+      std::array<float, 2> vfa = wnd.get_coord_scale();
+      if (ImGui::SliderFloat2("Scale", &vfa[0],
+          0.156f, 64.0f, "%.3f", ImGuiSliderFlags_Logarithmic)) {
+        wnd.set_coord_scale(vfa);
+      }
+      float vf = wnd.get_luma_pow();
+      if (ImGui::SliderFloat("Luma PowerOf", &vf, -5.0f, 5.0f)) {
+        wnd.set_luma_pow(vf);
+      }
+      vf = wnd.get_luma_mul();
+      if (ImGui::SliderFloat("Luma Multiply", &vf, 0.1f, 5.0f)) {
+        wnd.set_luma_mul(vf);
+      }
+      vf = wnd.get_luma_add();
+      if (ImGui::SliderFloat("Luma Add", &vf, -1.0f, 1.0f)) {
+        wnd.set_luma_add(vf);
       }
       if (ImGui::Button("Paste clipboard text (RightAlt + V)")) {
         paste_clipboard_text();
@@ -6268,12 +6515,13 @@ vcnet_control::draw_gui()
         if (gui.mod_rshift) { mod |= 0x20; }
         if (gui.mod_ralt) { mod |= 0x40; }
         if (gui.mod_rgui) { mod |= 0x80; }
-        hid.key_down(code, mod, false);
+        hid.key_down(code, mod, true);
         /* 一定時間後にkey_upを実行する */
         keycmd kc { };
         kc.code = code;
         kc.mod = mod;
         kc.cmd = 0x05; // up
+        kc.noconv = true;
         auto now = std::chrono::system_clock::now();
         kc.time = now + std::chrono::milliseconds(100);
           // 100ms後に実行する。あまり短いとリモートデバイスのOSによっては
@@ -6372,11 +6620,13 @@ vcnet_control::exec_step()
     send_hid_state();
   }
   bool videoframe_done = false;
+  bool videoframe_timeout = false;
   bool has_net_event = false;
   conn.recv_data(pix, videoframe_done, has_net_event, audiobuf);
   if (wnd.capture_video_read_sample()) {
     videoframe_done = true;
       // ビデオのサンプルを受け取ったのでフレーム終了し描画する
+    // log(0, "vdone ");
   }
   prof.cur.mark(2);
   if (!has_net_event && !videoframe_done) {
@@ -6386,9 +6636,11 @@ vcnet_control::exec_step()
   auto now = std::chrono::system_clock::now();
   if (duration_ms(now, last_draw_time) > 100 && pix.get_offset() == 0) {
     videoframe_done = true; // timeout
+    videoframe_timeout = true;
   }
   if (duration_ms(now, last_draw_time) > 500) {
     videoframe_done = true; // timeout
+    videoframe_timeout = true;
   }
   if (duration_ms(now, last_mouse_send_time) > (long)hid_interval) {
     // 既定では3ms間隔でHID mouse等の状態を送信する。
@@ -6424,7 +6676,7 @@ vcnet_control::exec_step()
   }
   prof.cur.mark(4);
   if (videoframe_done) {
-    {
+    if (!videoframe_timeout) {
       long vft = duration_ms(now, last_vfd_time);
       last_vfd_time = now;
       stat_vfd_min = std::min((uint32_t)vft, stat_vfd_min);
@@ -6506,8 +6758,12 @@ vcnet_control::exec_step()
            + " C:" + std::to_string(cur_joystick) + "(" + joystick_name + ")";
       }
       cur_msg = msg;
+      set_hint_allow_screensaver(!video_locked);
+        // スクリーンセーバ防止 iff ビデオ信号が届いている
     }
-    conn.increment_videoframe_count();
+    if (!videoframe_timeout) {
+      conn.increment_videoframe_count();
+    }
     bool suppress_vsync_wait = false;
     if (conn.get_net_roundtrip_time() >= rtt_thr) {
       // RTTが大きいとUDP受信バッファに溜まっている可能性がある。クライアント
@@ -6641,26 +6897,6 @@ vcnet_control::mainloop()
       done = true;
       break;
     }
-    #if 0
-    {
-      if (prof.cur.sum() > prof.mx.sum()) {
-        prof.mx = prof.cur;
-      }
-      if (prof.mi.sum() == 0 || prof.mi.sum() > prof.cur.sum()) {
-        prof.mi = prof.cur;
-      }
-      prof.sum += prof.cur;
-      if (++prof.count >= 100) {
-        prof.mi_saved = prof.mi;
-        prof.mx_saved = prof.mx;
-        prof.sum_saved = prof.sum;
-        prof.mi.reset();
-        prof.mx.reset();
-        prof.sum.reset();
-        prof.count = 0;
-      }
-    }
-    #endif
     prof.cur.mark(0);
     SDL_Event ev;
     while (SDL_PollEvent(&ev) != 0 && !done) {
@@ -6675,6 +6911,22 @@ vcnet_control::mainloop()
     }
     #endif
     exec_step();
+    {
+      /*
+      int numkeys = 0;
+      const Uint8 *ks = SDL_GetKeyboardState(&numkeys);
+      const Uint8 *p = (const Uint8 *)memchr(ks, 1, numkeys);
+      if (p != nullptr) {
+        log(0, "ks %u\n", (unsigned)(p - ks));
+      }
+      */
+      /*
+      SDL_Keymod km = SDL_GetModState();
+      if (km != 0) {
+        log(0, "km %u\n", (unsigned)km);
+      }
+      */
+    }
     auto now = std::chrono::system_clock::now();
     if (autoclose != 0 && duration_ms(now, start_time) > (long)autoclose) {
       log(0, "autoclose\n");
@@ -6761,7 +7013,7 @@ int main(int argc, char *argv[])
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "2");
     SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
     SDL_SetHint(SDL_HINT_ACCELEROMETER_AS_JOYSTICK, "0");
-    if (conf.get_uint("screensaver", 0) != 0) {
+    if (conf.get_uint("screensaver", 1) != 0) {
       SDL_SetHint(SDL_HINT_VIDEO_ALLOW_SCREENSAVER, "1");
     }
     Uint32 f = 0;

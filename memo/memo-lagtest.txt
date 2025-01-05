@@ -74,3 +74,15 @@ delay 66068 amin=199 amax=761 dmin=64459 dmax=101652 davg=78544 dcnt=200
 delay 49011 amin=100 amax=201 dmin=44001 dmax=59862 davg=51859 dcnt=223
 delay 52227 amin=199 amax=758 dmin=42684 dmax=60078 davg=53782 dcnt=224
 
+-------------------------
+参考: PC(w11)で直接動かした場合。165Hzディスプレイ。Vulkan、
+vsync(VK_PRESENT_MODE_FIFO_KHR)。
+delay 22761 amin=72 amax=200 dmin=19726 dmax=37948 davg=28359 dcnt=101
+delay 28748 amin=199 amax=755 dmin=16635 dmax=28748 davg=23857 dcnt=102
+
+-------------------------
+参考: PC(w11)で直接動かした場合。165Hzディスプレイ。Vulkan、
+novsync(VK_PRESENT_MODE_IMMEDIATE_KHR)。
+delay 17362 amin=199 amax=754 dmin=15545 dmax=22337 davg=18790 dcnt=100
+delay 16808 amin=73 amax=200 dmin=16483 dmax=22223 davg=19987 dcnt=101
+

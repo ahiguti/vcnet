@@ -2,16 +2,14 @@
 --------------------------------------------------------------------------
 TODO
 
+- macキー変換: @を押したままaを押すとAになる
+- GUIのmouseが効かないことがある
+  - 一度focusを外してもう一度当てると治る
+- 60hz vsync有効のとき音声が途切れる。マルチディスプレイのときのみ？
 - 現在時刻をサーバへ送信する
 - SDへログ出力
 - ethernet不達の状態から自動復帰
 - vcnet_mcu: 120Hzキャプチャ、60Hzディスプレイで音声がおかしくなる
-- vcnet_1g: フレーム間隔が不安定なのは何が原因か
-  - ネット。ホスト側でvcnet以外のネットワークアクセスがあると遅延する。
-  - lwipでtcp windowが65535 byteまでしか設定できないので吸い取るのが遅いと
-    すぐに送信側がブロックする。linuxにするといいのか？
-  - クライアントのRCVBUFは十分大きいので吸い取るスレッドの処理が遅いせいでは
-    なく、tcp/ipスタックのせいではないか？
 - vcnet_mcu: modifier keyが2回押されてる？
 - vcnet_1g: たまにnetframe too large tag0=5 tag1=19ea42c
   - tagの値がおかしい
@@ -23,16 +21,10 @@ TODO
 - glTexImage2DではなくPixel Buffer Objectで転送してみる
   - https://stackoverflow.com/questions/9863969/updating-a-texture-in-opengl-with-glteximage2d
 - video_use_sample_reader
-- absmouse 効かないことがある
-  - recalc_draw_rect呼ばれないうちは効かない
 - FIXME: vcnet_main.c
     value |= ((now & 32) != 0) ? 0x01 : 0x00;
     これ何？ ここは常に0x01を返すのが正しいのでは？
-- video/audio無しのvcnetサーバをmcuだけで作れないか
-  - bit bangingでmcu間broadcast通信してみる
 - video/audio無しのvcnetサーバをmicroblazeで
-- captureモードのときのmessage表示
-- captureモードのビデオ表示をopenglでやる？
 - 現状のYUVのdownsamplingの方法はあまりよくないのではないか。
   - YUV422のCbとCrは同じ位置(偶奇の中間)のサンプルとするべきでは？
     - 4:2:2 BT.601は左(偶数)のサンプルとしている？
@@ -115,6 +107,20 @@ TODO
 --------------------------------------------------------------------------
 DONE
 
+- FIXME: macキー変換、Shift押 -押 Shift離 -離 でキー押下状態が残る(done)
+- vcnet_1g: フレーム間隔が不安定なのは何が原因か(done)
+  - ネット。ホスト側でvcnet以外のネットワークアクセスがあると遅延する。
+  - lwipでtcp windowが65535 byteまでしか設定できないので吸い取るのが遅いと
+    すぐに送信側がブロックする。linuxにするといいのか？
+  - クライアントのRCVBUFは十分大きいので吸い取るスレッドの処理が遅いせいでは
+    なく、tcp/ipスタックのせいではないか？
+  - flip動作変更で修正(done)
+- absmouse 効かないことがある(done)
+  - recalc_draw_rect呼ばれないうちは効かない
+- video/audio無しのvcnetサーバをmcuだけで作れないか(done)
+  - bit bangingでmcu間broadcast通信してみる
+- captureモードのときのmessage表示(done)
+- captureモードのビデオ表示をopenglでやる？(done)
 - mbpのunderlineが効かないことがある。keymapの問題では。(done)
 - capture: RALT+Yでフォーマットを変えられるように(done)
 - yuy2: 読んでいるテクスチャオフセットがおかしい?(done)
